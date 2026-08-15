@@ -318,13 +318,23 @@ export class SubscriptionRepository {
         .get(storedError, failedAt, failedAt, failedAt, id);
       if (!row) return null;
 
+      const failureEventId = Bun.randomUUIDv7();
       this.database
         .query<never, [string, string, number, string, number, number]>(
           `INSERT INTO poll_failure_events (
              id, subscription_id, attempt, error, failed_at, created_at
            ) VALUES (?, ?, ?, ?, ?, ?)`,
         )
-        .run(Bun.randomUUIDv7(), id, row.consecutive_failures, storedError, failedAt, failedAt);
+        .run(failureEventId, id, row.consecutive_failures, storedError, failedAt, failedAt);
+      this.database
+        .query<never, [string, string, number, number]>(
+          `INSERT INTO deliveries (
+             id, destination_id, failure_event_id, created_at, updated_at
+           )
+           SELECT ? || ':' || id, id, ?, ?, ?
+           FROM destinations WHERE enabled = 1`,
+        )
+        .run(failureEventId, failureEventId, failedAt, failedAt);
       return mapSubscription(row);
     });
     return persist();
@@ -394,8 +404,9 @@ export class ItemRepository {
 
       let insertedItems = 0;
       for (const item of preparedItems) {
+        const itemId = this.generateId();
         const result = insert.run(
-          this.generateId(),
+          itemId,
           write.subscriptionId,
           item.externalId,
           item.url,
@@ -412,6 +423,15 @@ export class ItemRepository {
           item.metadataJson,
         );
         insertedItems += result.changes;
+        if (result.changes === 1) {
+          this.database
+            .query<never, [string, string, number, number]>(
+              `INSERT INTO deliveries (id, destination_id, item_id, created_at, updated_at)
+               SELECT ? || ':' || id, id, ?, ?, ?
+               FROM destinations WHERE enabled = 1`,
+            )
+            .run(itemId, itemId, write.polledAt, write.polledAt);
+        }
       }
 
       const nextPollAt =

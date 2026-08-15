@@ -2,6 +2,7 @@ export interface Config {
   host: string;
   port: number;
   databasePath: string;
+  telegram: { botToken: string; chatId: string } | null;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -19,5 +20,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error("DATABASE_PATH must not be empty");
   }
 
-  return { host, port, databasePath };
+  const botToken = env.TELEGRAM_BOT_TOKEN?.trim() || "";
+  const chatId = env.TELEGRAM_CHAT_ID?.trim() || "";
+  if (Boolean(botToken) !== Boolean(chatId)) {
+    throw new Error("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be configured together");
+  }
+
+  return { host, port, databasePath, telegram: botToken ? { botToken, chatId } : null };
 }

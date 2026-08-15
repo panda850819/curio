@@ -42,6 +42,51 @@ export interface PollFailureEvent {
   deliveredAt: number | null;
 }
 
+export type DeliveryStatus =
+  | "pending"
+  | "processing"
+  | "retry_scheduled"
+  | "delivered"
+  | "uncertain"
+  | "permanent_failure";
+
+export interface Destination {
+  id: string;
+  destinationKey: string;
+  kind: "telegram";
+  config: JsonValue;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface Delivery {
+  id: string;
+  destinationId: string;
+  itemId: string | null;
+  failureEventId: string | null;
+  status: DeliveryStatus;
+  attemptCount: number;
+  nextAttemptAt: number | null;
+  telegramMessageId: number | null;
+  lastError: string | null;
+  claimedAt: number | null;
+  deliveredAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DeliveryAttempt {
+  id: string;
+  deliveryId: string;
+  attempt: number;
+  outcome: "delivered" | "retry" | "uncertain" | "permanent_failure";
+  httpStatus: number | null;
+  error: string | null;
+  startedAt: number;
+  finishedAt: number;
+}
+
 export interface CanonicalItem {
   externalId: string;
   url?: string | null;

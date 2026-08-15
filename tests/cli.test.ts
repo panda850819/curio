@@ -77,6 +77,10 @@ function subscriptionHarness(result: ProbeResult) {
         cursor: {},
       };
     },
+    listDeliveries: () => [],
+    retryDelivery: () => {
+      throw new Error("unexpected retryDelivery");
+    },
     io: {
       stdout: (message) => stdout.push(message),
       stderr: (message) => stderr.push(message),
@@ -108,6 +112,10 @@ function harness(probeUrl: () => Promise<ProbeResult>) {
       },
       poll: async () => {
         throw new Error("unexpected poll");
+      },
+      listDeliveries: () => [],
+      retryDelivery: () => {
+        throw new Error("unexpected retryDelivery");
       },
       io: {
         stdout: (message: string) => stdout.push(message),
@@ -252,6 +260,45 @@ describe("Curio CLI", () => {
       "resolve:subscription-1",
       "remove:subscription-1",
     ]);
+  });
+
+  test("lists deliveries by status and manually retries a delivery", async () => {
+    const testHarness = subscriptionHarness(emptyResult);
+    const delivery = {
+      id: "delivery-1",
+      destinationId: "destination-1",
+      itemId: "item-1",
+      failureEventId: null,
+      status: "uncertain" as const,
+      attemptCount: 1,
+      nextAttemptAt: null,
+      telegramMessageId: null,
+      lastError: "ambiguous",
+      claimedAt: null,
+      deliveredAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    let listedStatus: string | undefined;
+    let retriedId = "";
+    testHarness.dependencies.listDeliveries = (status) => {
+      listedStatus = status;
+      return [delivery];
+    };
+    testHarness.dependencies.retryDelivery = (id) => {
+      retriedId = id;
+      return { ...delivery, status: "pending" };
+    };
+
+    expect(
+      await runCli(
+        ["deliveries", "list", "--status", "uncertain", "--json"],
+        testHarness.dependencies,
+      ),
+    ).toBe(0);
+    expect(listedStatus).toBe("uncertain");
+    expect(await runCli(["deliveries", "retry", "delivery-1"], testHarness.dependencies)).toBe(0);
+    expect(retriedId).toBe("delivery-1");
   });
 
   test("formats candidates for humans", () => {
