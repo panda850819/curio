@@ -41,7 +41,7 @@ sudo /path/to/deploy/install.sh
 6. validates Compose without printing rendered secrets;
 7. starts the service with `--no-build`.
 
-Production Compose mounts `.env` as `/run/secrets/curio_env`; the bot token is not embedded in rendered Compose output or stored in the image. Continue using `docker compose config --quiet` in automation to minimize unrelated configuration disclosure.
+The installer keeps `.env` at `0600 root:root`, creates `runtime/curio.env` at `0440 root:<container-gid>`, and mounts only that runtime copy as `/run/secrets/curio_env`. The bot token is not embedded in rendered Compose output or stored in the image. Continue using `docker compose config --quiet` in automation to minimize unrelated configuration disclosure.
 
 ## 3. Verification
 
@@ -93,8 +93,9 @@ Use `curio deliveries retry <delivery-id>` only after reviewing an `uncertain` o
 1. Stop Curio gracefully.
 2. Recreate `/opt/curio/.env` with the no-echo procedure above.
 3. Ensure mode `0600`.
-4. Start Curio and run `status.sh`.
-5. Revoke the old token only after the new bot successfully posts.
+4. Rerun `install.sh` to refresh the restricted runtime secret copy and recreate Curio.
+5. Run `status.sh`.
+6. Revoke the old token only after the new bot successfully posts.
 
 ## 7. Rollback
 

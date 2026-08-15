@@ -29,7 +29,7 @@ if ! grep -q '^TELEGRAM_BOT_TOKEN=..' "$ROOT/.env" || ! grep -q '^TELEGRAM_CHAT_
   exit 1
 fi
 
-install -d -m 0700 "$ROOT" "$ROOT/data" "$ROOT/backups" "$ROOT/restore-test" "$ROOT/operations"
+install -d -m 0700 "$ROOT" "$ROOT/data" "$ROOT/backups" "$ROOT/restore-test" "$ROOT/operations" "$ROOT/runtime"
 if [[ -f "$ROOT/data/curio.db" ]]; then
   "$SCRIPT_DIR/backup.sh" predeploy
 fi
@@ -55,6 +55,8 @@ fi
 container_uid=$(docker run --rm "$IMAGE" id -u)
 container_gid=$(docker run --rm "$IMAGE" id -g)
 chown "$container_uid:$container_gid" "$ROOT/data"
+install -d -o root -g "$container_gid" -m 0710 "$ROOT/runtime"
+install -o root -g "$container_gid" -m 0440 "$ROOT/.env" "$ROOT/runtime/curio.env"
 
 install -m 0600 "$SCRIPT_DIR/compose.production.yaml" "$ROOT/compose.yaml"
 install -m 0700 "$SCRIPT_DIR/backup.sh" "$ROOT/operations/backup.sh"

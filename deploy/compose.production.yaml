@@ -43,7 +43,7 @@ services:
 
 secrets:
   curio_env:
-    file: ./.env
+    file: ./runtime/curio.env
 
 networks:
   private:
