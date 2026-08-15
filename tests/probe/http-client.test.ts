@@ -41,7 +41,11 @@ function startServer(
 describe("SafeHttpClient", () => {
   test("dials the validated address while preserving the hostname", async () => {
     const server = startServer((request) =>
-      Response.json({ host: request.headers.get("host"), path: new URL(request.url).pathname }),
+      Response.json({
+        host: request.headers.get("host"),
+        path: new URL(request.url).pathname,
+        ifNoneMatch: request.headers.get("if-none-match"),
+      }),
     );
     const resolver = new FakeResolver({
       "probe.test": [{ address: "8.8.8.8", family: 4 }],
@@ -53,11 +57,14 @@ describe("SafeHttpClient", () => {
       1_000,
     );
 
-    const result = await client.get("http://probe.test/path", () => 1_024);
+    const result = await client.get("http://probe.test/path", () => 1_024, {
+      "If-None-Match": '"version-1"',
+    });
 
     expect(JSON.parse(new TextDecoder().decode(result.body))).toEqual({
       host: "probe.test",
       path: "/path",
+      ifNoneMatch: '"version-1"',
     });
     expect(connections).toEqual([
       {
@@ -110,6 +117,45 @@ describe("SafeHttpClient", () => {
     });
     expect(resolver.hostnames).toEqual(["public.test", "private.test"]);
     expect(connections).toHaveLength(1);
+  });
+
+  test("strips conditional headers on cross-origin redirects", async () => {
+    const server = startServer((request) => {
+      if (request.headers.get("host") === "first.test") {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "http://second.test/feed" },
+        });
+      }
+      return Response.json({ ifNoneMatch: request.headers.get("if-none-match") });
+    });
+    const resolver = new FakeResolver({
+      "first.test": [{ address: "8.8.8.8", family: 4 }],
+      "second.test": [{ address: "8.8.4.4", family: 4 }],
+    });
+    const client = new SafeHttpClient(resolver, localConnectionFactory(server.port, []), 1_000);
+
+    const result = await client.get("http://first.test", () => 1_024, {
+      "If-None-Match": '"private-validator"',
+    });
+
+    expect(JSON.parse(new TextDecoder().decode(result.body))).toEqual({ ifNoneMatch: null });
+  });
+
+  test("rejects invalid conditional headers before dialing", async () => {
+    const resolver = new FakeResolver({
+      "headers.test": [{ address: "8.8.8.8", family: 4 }],
+    });
+    const connections: ConnectionOptions[] = [];
+    const client = new SafeHttpClient(resolver, (options) => {
+      connections.push(options);
+      throw new Error("must not dial");
+    });
+
+    await expect(
+      client.get("http://headers.test", () => 100, { "If-None-Match": "ok\r\nInjected: yes" }),
+    ).rejects.toMatchObject({ code: "request_failed" });
+    expect(connections).toEqual([]);
   });
 
   test("detects redirect loops and redirect limits", async () => {

@@ -44,5 +44,9 @@ export interface HttpResponse {
 }
 
 export interface ProbeHttpClient {
-  get(url: string, maximumBytes: (contentType: string | null) => number): Promise<HttpResponse>;
+  get(
+    url: string,
+    maximumBytes: (contentType: string | null) => number,
+    requestHeaders?: Readonly<Record<string, string>>,
+  ): Promise<HttpResponse>;
 }

@@ -13,6 +13,9 @@ export interface Subscription {
   lastPolledAt: number | null;
   lastSuccessAt: number | null;
   nextPollAt: number | null;
+  consecutiveFailures: number;
+  lastError: string | null;
+  lastFailedAt: number | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;

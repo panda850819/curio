@@ -239,6 +239,18 @@ bun run curio probe https://example.com --json
 
 Probe 只允許 public HTTP(S)，會阻擋 credentials、localhost、private/link-local/reserved IP，以及 redirect 至內網。它驗證 RSS、Atom 或 RDF 的 Content-Type 與 XML root，但不在此階段解析 entries 或建立 subscription。
 
+### RSS Source Adapter
+
+`RssSourceAdapter` 支援 RSS 2.0、Atom 與 RSS 1.0/RDF。它使用 Probe 的安全 transport，保存 ETag／Last-Modified、以 conditional request poll，並將 entries 正規化成 canonical items。
+
+第一次 poll 預設 backfill 最新 20 篇，可在 subscription metadata 設定：
+
+```json
+{"backfillLimit": 20}
+```
+
+合法範圍為 `0–500`。失敗會記錄 `consecutive_failures`、`last_error` 與 `last_failed_at`；成功或 `304 Not Modified` 會清除 failure state。Adapter 尚未接入 scheduler 或公開 CLI command。
+
 ## 環境變數
 
 | 變數 | 預設值 | 用途 |

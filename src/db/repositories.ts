@@ -21,6 +21,9 @@ interface SubscriptionRow {
   last_polled_at: number | null;
   last_success_at: number | null;
   next_poll_at: number | null;
+  consecutive_failures: number;
+  last_error: string | null;
+  last_failed_at: number | null;
   created_at: number;
   updated_at: number;
   deleted_at: number | null;
@@ -80,6 +83,9 @@ function mapSubscription(row: SubscriptionRow): Subscription {
     lastPolledAt: row.last_polled_at,
     lastSuccessAt: row.last_success_at,
     nextPollAt: row.next_poll_at,
+    consecutiveFailures: row.consecutive_failures,
+    lastError: row.last_error,
+    lastFailedAt: row.last_failed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
@@ -213,6 +219,19 @@ export class SubscriptionRepository {
     return row ? mapSubscription(row) : null;
   }
 
+  recordFailure(id: string, errorMessage: string, failedAt: number): Subscription | null {
+    const row = this.database
+      .query<SubscriptionRow, [string, number, number, string]>(
+        `UPDATE subscriptions
+         SET consecutive_failures = consecutive_failures + 1,
+             last_error = ?, last_failed_at = ?, updated_at = ?
+         WHERE id = ? AND enabled = 1 AND deleted_at IS NULL
+         RETURNING *`,
+      )
+      .get(errorMessage, failedAt, failedAt, id);
+    return row ? mapSubscription(row) : null;
+  }
+
   softDelete(id: string): boolean {
     const timestamp = this.now();
     const result = this.database
@@ -294,6 +313,7 @@ export class ItemRepository {
         .query<never, [string, number, number, number | null, number, string]>(
           `UPDATE subscriptions
            SET cursor_json = ?, last_polled_at = ?, last_success_at = ?, next_poll_at = ?,
+               consecutive_failures = 0, last_error = NULL, last_failed_at = NULL,
                updated_at = ?
            WHERE id = ? AND deleted_at IS NULL`,
         )
