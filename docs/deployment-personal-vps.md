@@ -41,7 +41,7 @@ sudo /path/to/deploy/install.sh
 6. validates Compose without printing rendered secrets;
 7. starts the service with `--no-build`.
 
-Never run `docker compose config` without `--quiet`: rendered environment values can expose the bot token.
+Production Compose mounts `.env` as `/run/secrets/curio_env`; the bot token is not embedded in rendered Compose output or stored in the image. Continue using `docker compose config --quiet` in automation to minimize unrelated configuration disclosure.
 
 ## 3. Verification
 

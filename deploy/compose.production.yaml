@@ -3,12 +3,15 @@ services:
     image: ${CURIO_IMAGE:-curio/server:5bf99fe}
     restart: unless-stopped
     init: true
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "set -a; . /run/secrets/curio_env; set +a; exec bun run src/index.ts"
     environment:
       HOST: 0.0.0.0
       PORT: 3000
       DATABASE_PATH: /data/curio.db
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    secrets:
+      - curio_env
     volumes:
       - ./data:/data
     expose:
@@ -37,6 +40,10 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+
+secrets:
+  curio_env:
+    file: ./.env
 
 networks:
   private:
