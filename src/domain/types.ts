@@ -13,6 +13,7 @@ export interface Subscription {
   lastPolledAt: number | null;
   lastSuccessAt: number | null;
   nextPollAt: number | null;
+  pollIntervalMinutes: number;
   consecutiveFailures: number;
   lastError: string | null;
   lastFailedAt: number | null;
@@ -28,6 +29,17 @@ export interface NewSubscription {
   title?: string | null;
   metadata?: JsonValue;
   nextPollAt?: number | null;
+  pollIntervalMinutes?: number;
+}
+
+export interface PollFailureEvent {
+  id: string;
+  subscriptionId: string;
+  attempt: number;
+  error: string;
+  failedAt: number;
+  createdAt: number;
+  deliveredAt: number | null;
 }
 
 export interface CanonicalItem {
