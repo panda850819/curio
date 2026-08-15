@@ -7,7 +7,9 @@ import {
   ItemRepository,
   SubscriptionRepository,
 } from "./db/repositories.ts";
-import type { Subscription } from "./domain/types.ts";
+import { DeliveryRepository } from "./delivery/repository.ts";
+import { DELIVERY_STATUSES } from "./delivery/types.ts";
+import type { Delivery, DeliveryStatus, Subscription } from "./domain/types.ts";
 import type { ProbeResult, SubscriptionCandidate } from "./probe/index.ts";
 import { ProbeError, probe, SafeHttpClient, SystemResolver } from "./probe/index.ts";
 import { PollCoordinator } from "./scheduler.ts";
@@ -27,6 +29,8 @@ export interface CliDependencies {
   setEnabled(id: string, enabled: boolean): Subscription;
   remove(id: string): void;
   poll(id: string): Promise<RssPollResult>;
+  listDeliveries(status?: DeliveryStatus): Delivery[];
+  retryDelivery(id: string): Delivery;
   io: CliIo;
 }
 
@@ -60,6 +64,8 @@ function usage(): string {
   curio resume <subscription-id|source-url> [--json]
   curio remove <subscription-id|source-url> [--json]
   curio poll <subscription-id|source-url> [--json]
+  curio deliveries list [--status <status>] [--json]
+  curio deliveries retry <delivery-id> [--json]
 `;
 }
 
@@ -87,6 +93,7 @@ interface ParsedArgs {
   json: boolean;
   candidate?: number;
   intervalMinutes: number;
+  status?: DeliveryStatus;
 }
 
 function parseInteger(value: string | undefined, flag: string): number {
@@ -102,6 +109,7 @@ function parseArgs(args: string[]): ParsedArgs {
   let json = false;
   let candidate: number | undefined;
   let intervalMinutes = 60;
+  let status: DeliveryStatus | undefined;
 
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index] as string;
@@ -111,6 +119,12 @@ function parseArgs(args: string[]): ParsedArgs {
       candidate = parseInteger(args[++index], "--candidate");
     } else if (argument === "--interval-minutes") {
       intervalMinutes = parseInteger(args[++index], "--interval-minutes");
+    } else if (argument === "--status") {
+      const value = args[++index];
+      if (!DELIVERY_STATUSES.includes(value as DeliveryStatus)) {
+        throw new CliError("usage_error", `Invalid delivery status: ${value ?? "missing"}`);
+      }
+      status = value as DeliveryStatus;
     } else if (argument.startsWith("--")) {
       throw new CliError("usage_error", `Unknown option: ${argument}`);
     } else {
@@ -121,7 +135,7 @@ function parseArgs(args: string[]): ParsedArgs {
   if (intervalMinutes < 5 || intervalMinutes > 10_080) {
     throw new CliError("usage_error", "--interval-minutes must be between 5 and 10080");
   }
-  return { command, positional, json, candidate, intervalMinutes };
+  return { command, positional, json, candidate, intervalMinutes, status };
 }
 
 function selectCandidate(
@@ -177,6 +191,15 @@ export async function runCli(args: string[], dependencies: CliDependencies): Pro
       if (parsed.positional.length !== 1) throw new CliError("usage_error", usage());
     } else if (parsed.command === "list") {
       if (parsed.positional.length !== 0) throw new CliError("usage_error", usage());
+    } else if (parsed.command === "deliveries") {
+      const action = parsed.positional[0];
+      if (
+        (action === "list" && parsed.positional.length !== 1) ||
+        (action === "retry" && parsed.positional.length !== 2) ||
+        (action !== "list" && action !== "retry")
+      ) {
+        throw new CliError("usage_error", usage());
+      }
     } else if (targetCommands.has(parsed.command)) {
       if (parsed.positional.length !== 1) throw new CliError("usage_error", usage());
     } else {
@@ -203,6 +226,22 @@ export async function runCli(args: string[], dependencies: CliDependencies): Pro
         subscriptions,
         subscriptions.map(humanSubscription).join("\n") || "No subscriptions.",
       );
+      return 0;
+    }
+    if (parsed.command === "deliveries") {
+      if (parsed.positional[0] === "list") {
+        const deliveries = dependencies.listDeliveries(parsed.status);
+        writeSuccess(
+          dependencies,
+          parsed,
+          deliveries,
+          deliveries.map((delivery) => `${delivery.status} ${delivery.id}`).join("\n") ||
+            "No deliveries.",
+        );
+      } else {
+        const delivery = dependencies.retryDelivery(parsed.positional[1] as string);
+        writeSuccess(dependencies, parsed, delivery, `pending ${delivery.id}`);
+      }
       return 0;
     }
 
@@ -253,6 +292,7 @@ if (import.meta.main) {
     const subscriptions = new SubscriptionRepository(database);
     const items = new ItemRepository(database);
     const coordinator = new PollCoordinator(new RssSourceAdapter(client, subscriptions, items));
+    const deliveries = new DeliveryRepository(database);
     const resolveSubscription = (target: string): Subscription => {
       const byId = subscriptions.findById(target);
       if (byId) return byId;
@@ -296,6 +336,8 @@ if (import.meta.main) {
         }
       },
       poll: (id) => coordinator.poll(id),
+      listDeliveries: (status) => deliveries.list(status),
+      retryDelivery: (id) => deliveries.retry(id),
       io: { stdout: console.log, stderr: console.error },
     });
     process.exitCode = exitCode;

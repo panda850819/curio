@@ -263,7 +263,18 @@ Probe 只允許 public HTTP(S)，會阻擋 credentials、localhost、private/lin
 
 合法範圍為 `0–500`。失敗會記錄 `consecutive_failures`、`last_error`、`last_failed_at` 與 durable failure event；成功或 `304 Not Modified` 會清除 failure state。
 
-Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到期 subscriptions，同一 subscription 不會在單一程序內重疊。正常 poll interval 預設 60 分鐘，可設為 `5–10080` 分鐘；失敗依 `5m → 15m → 1h → 6h` backoff 重試。Failure events 會保留到後續 Telegram delivery pipeline 消費。
+Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到期 subscriptions，同一 subscription 不會在單一程序內重疊。正常 poll interval 預設 60 分鐘，可設為 `5–10080` 分鐘；失敗依 `5m → 15m → 1h → 6h` backoff 重試。
+
+### Telegram delivery
+
+同時設定 `TELEGRAM_BOT_TOKEN` 與 `TELEGRAM_CHAT_ID` 後，Curio 會把新 items 與每次 poll failure 送到單一 Telegram channel。既有 items 不補送；尚未通知的 failure events 會補入 delivery queue。
+
+```bash
+bun run curio deliveries list --status uncertain --json
+bun run curio deliveries retry <delivery-id> --json
+```
+
+Telegram 429 依 `retry_after` 重試，network/5xx 最多嘗試 5 次。Timeout 或 malformed success 會標記 `uncertain`，必須人工 retry，避免盲目重送造成 duplicate。
 
 ## 環境變數
 
@@ -272,6 +283,8 @@ Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到�
 | `HOST` | `127.0.0.1` | HTTP bind address；container 使用 `0.0.0.0` |
 | `PORT` | `3000` | HTTP port |
 | `DATABASE_PATH` | `./data/curio.db` | SQLite database path；container 使用 `/data/curio.db` |
+| `TELEGRAM_BOT_TOKEN` | 未設定 | Telegram Bot token；必須與 chat ID 同時設定 |
+| `TELEGRAM_CHAT_ID` | 未設定 | Telegram channel username 或 numeric chat ID |
 | `CURIO_NETWORK` | `personal-infra_private` | Compose 使用的既有 external Docker network |
 | `MIGRATIONS_PATH` | 專案的 `migrations/` | 只在自訂 migration 位置時設定 |
 
