@@ -2,6 +2,7 @@ import type { ItemRepository, SubscriptionRepository } from "../../db/repositori
 import type { Subscription } from "../../domain/types.ts";
 import { isFeedContentType } from "../../probe/feed.ts";
 import type { ProbeHttpClient } from "../../probe/types.ts";
+import { sanitizeErrorMessage } from "../../security/redaction.ts";
 import { normalizeFeed } from "./normalize.ts";
 import {
   isJsonObject,
@@ -15,7 +16,6 @@ const FEED_LIMIT = 5 * 1024 * 1024;
 const DEFAULT_BACKFILL_LIMIT = 20;
 const MAXIMUM_BACKFILL_LIMIT = 500;
 const MAXIMUM_CURSOR_HEADER_LENGTH = 1_024;
-const MAXIMUM_ERROR_LENGTH = 2_048;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 function readCursor(subscription: Subscription): RssCursor {
@@ -117,29 +117,6 @@ function firstBackfill(entries: NormalizedFeedEntry[], limit: number): Normalize
     .slice(0, limit);
 }
 
-function safeErrorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  const withoutCredentials = raw.replace(/https?:\/\/[^\s]+/gi, (candidate) => {
-    try {
-      const url = new URL(candidate);
-      const hadCredentials = Boolean(url.username || url.password);
-      const hadQuery = Boolean(url.search);
-      const credentialMarker = hadCredentials ? "/[credentials-redacted]" : "";
-      const queryMarker = hadQuery ? "?credentials-redacted" : "";
-      return `${url.protocol}//${url.host}${credentialMarker}${url.pathname}${queryMarker}`;
-    } catch {
-      return "[url-redacted]";
-    }
-  });
-  const withoutControls = [...withoutCredentials]
-    .map((character) => {
-      const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint < 32 || codePoint === 127 ? " " : character;
-    })
-    .join("");
-  return withoutControls.slice(0, MAXIMUM_ERROR_LENGTH);
-}
-
 export class RssSourceAdapter {
   constructor(
     private readonly client: ProbeHttpClient,
@@ -157,6 +134,7 @@ export class RssSourceAdapter {
     }
 
     const polledAt = this.now();
+    const nextPollAt = polledAt + subscription.pollIntervalMinutes * 60_000;
     try {
       const cursor = readCursor(subscription);
       const backfillLimit = subscription.cursor === null ? readBackfillLimit(subscription) : null;
@@ -179,6 +157,7 @@ export class RssSourceAdapter {
           items: [],
           cursor: cursorJson(nextCursor),
           polledAt,
+          nextPollAt,
         });
         return { status: "not_modified", ...result, warnings, cursor: nextCursor };
       }
@@ -200,11 +179,12 @@ export class RssSourceAdapter {
         items: selected.map((entry) => entry.item),
         cursor: cursorJson(nextCursor),
         polledAt,
+        nextPollAt,
       });
 
       return { status: "fetched", ...result, warnings, cursor: nextCursor };
     } catch (error) {
-      this.subscriptions.recordFailure(subscriptionId, safeErrorMessage(error), polledAt);
+      this.subscriptions.recordFailure(subscriptionId, sanitizeErrorMessage(error), polledAt);
       throw error;
     }
   }

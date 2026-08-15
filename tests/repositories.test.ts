@@ -40,6 +40,7 @@ describe("SubscriptionRepository", () => {
     expect(subscription.id[14]).toBe("7");
     expect(subscription.metadata).toEqual({ language: "zh-TW" });
     expect(subscription.createdAt).toBe(1_000);
+    expect(subscription.pollIntervalMinutes).toBe(60);
     expect(repository.listDue(1_999)).toEqual([]);
     expect(repository.listDue(2_000).map((item) => item.id)).toEqual([subscription.id]);
     database.close();
@@ -79,6 +80,87 @@ describe("SubscriptionRepository", () => {
     expect(restored.title).toBe("Restored");
     expect(restored.metadata).toEqual({ preserved: true });
     expect(restored.nextPollAt).toBeNull();
+    database.close();
+  });
+
+  test("lists and resolves active subscriptions by exact source URL", () => {
+    const database = createDatabase();
+    const repository = new SubscriptionRepository(database, sequence("subscription"), () => 1_000);
+    const first = repository.create({
+      adapter: "rss",
+      sourceKey: "first",
+      sourceUrl: "https://example.com/shared",
+      pollIntervalMinutes: 120,
+    });
+    const second = repository.create({
+      adapter: "rss-alt",
+      sourceKey: "second",
+      sourceUrl: "https://example.com/shared",
+    });
+
+    expect(repository.list().map((item) => item.id)).toEqual([first.id, second.id]);
+    expect(repository.findBySourceUrl("https://example.com/shared")).toHaveLength(2);
+    expect(first.pollIntervalMinutes).toBe(120);
+    repository.softDelete(first.id);
+    expect(repository.findBySourceUrl("https://example.com/shared").map((item) => item.id)).toEqual(
+      [second.id],
+    );
+    database.close();
+  });
+
+  test("atomically schedules failures and creates one durable event per attempt", () => {
+    const database = createDatabase();
+    const repository = new SubscriptionRepository(database, sequence("subscription"), () => 1_000);
+    const subscription = repository.create({
+      adapter: "rss",
+      sourceKey: "failure-feed",
+      sourceUrl: "https://example.com/failure",
+    });
+
+    const expectedDelays = [300_000, 900_000, 3_600_000, 21_600_000, 21_600_000];
+    for (const [index, delay] of expectedDelays.entries()) {
+      const failedAt = 2_000 + index;
+      expect(
+        repository.recordFailure(subscription.id, `failure-${index + 1}`, failedAt),
+      ).toMatchObject({
+        consecutiveFailures: index + 1,
+        nextPollAt: failedAt + delay,
+      });
+    }
+    expect(repository.listFailureEvents().map((event) => event.attempt)).toEqual([1, 2, 3, 4, 5]);
+
+    database.exec(`
+      CREATE TRIGGER block_failure_event
+      BEFORE INSERT ON poll_failure_events
+      BEGIN SELECT RAISE(ABORT, 'event blocked'); END;
+    `);
+    expect(() => repository.recordFailure(subscription.id, "must-roll-back", 9_000)).toThrow(
+      "event blocked",
+    );
+    expect(repository.findById(subscription.id)?.consecutiveFailures).toBe(5);
+    expect(repository.listFailureEvents()).toHaveLength(5);
+    database.close();
+  });
+
+  test("sanitizes failure events at the persistence boundary", () => {
+    const database = createDatabase();
+    const repository = new SubscriptionRepository(database, sequence("subscription"), () => 1_000);
+    const subscription = repository.create({
+      adapter: "rss",
+      sourceKey: "secret-feed",
+      sourceUrl: "https://example.com/secret",
+    });
+
+    repository.recordFailure(
+      subscription.id,
+      "failed https://user:password@example.com/feed?token=query-secret",
+      2_000,
+    );
+    repository.recordFailure(subscription.id, "", 3_000);
+    const events = repository.listFailureEvents();
+    expect(events[0]?.error).not.toContain("password");
+    expect(events[0]?.error).not.toContain("query-secret");
+    expect(events[1]?.error).toBe("Unknown error");
     database.close();
   });
 

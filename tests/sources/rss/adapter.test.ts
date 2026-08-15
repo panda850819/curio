@@ -135,6 +135,7 @@ describe("RssSourceAdapter", () => {
       lastError: null,
       lastFailedAt: null,
       lastSuccessAt: 2_000,
+      nextPollAt: 3_602_000,
     });
     context.database.close();
   });

@@ -4,10 +4,12 @@ import type {
   Item,
   JsonValue,
   NewSubscription,
+  PollFailureEvent,
   PollWrite,
   PollWriteResult,
   Subscription,
 } from "../domain/types.ts";
+import { sanitizeErrorMessage } from "../security/redaction.ts";
 
 interface SubscriptionRow {
   id: string;
@@ -21,12 +23,23 @@ interface SubscriptionRow {
   last_polled_at: number | null;
   last_success_at: number | null;
   next_poll_at: number | null;
+  poll_interval_minutes: number;
   consecutive_failures: number;
   last_error: string | null;
   last_failed_at: number | null;
   created_at: number;
   updated_at: number;
   deleted_at: number | null;
+}
+
+interface PollFailureEventRow {
+  id: string;
+  subscription_id: string;
+  attempt: number;
+  error: string;
+  failed_at: number;
+  created_at: number;
+  delivered_at: number | null;
 }
 
 interface ItemRow {
@@ -83,12 +96,25 @@ function mapSubscription(row: SubscriptionRow): Subscription {
     lastPolledAt: row.last_polled_at,
     lastSuccessAt: row.last_success_at,
     nextPollAt: row.next_poll_at,
+    pollIntervalMinutes: row.poll_interval_minutes,
     consecutiveFailures: row.consecutive_failures,
     lastError: row.last_error,
     lastFailedAt: row.last_failed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
+  };
+}
+
+function mapFailureEvent(row: PollFailureEventRow): PollFailureEvent {
+  return {
+    id: row.id,
+    subscriptionId: row.subscription_id,
+    attempt: row.attempt,
+    error: row.error,
+    failedAt: row.failed_at,
+    createdAt: row.created_at,
+    deliveredAt: row.delivered_at,
   };
 }
 
@@ -139,10 +165,13 @@ export class SubscriptionRepository {
 
       if (existing) {
         const restored = this.database
-          .query<SubscriptionRow, [string, string | null, string, number | null, number, string]>(
+          .query<
+            SubscriptionRow,
+            [string, string | null, string, number | null, number, number, string]
+          >(
             `UPDATE subscriptions
              SET source_url = ?, title = ?, metadata_json = ?, next_poll_at = ?,
-                 enabled = 1, deleted_at = NULL, updated_at = ?
+                 poll_interval_minutes = ?, enabled = 1, deleted_at = NULL, updated_at = ?
              WHERE id = ?
              RETURNING *`,
           )
@@ -151,6 +180,7 @@ export class SubscriptionRepository {
             input.title === undefined ? existing.title : input.title,
             metadataJson ?? existing.metadata_json,
             input.nextPollAt === undefined ? existing.next_poll_at : input.nextPollAt,
+            input.pollIntervalMinutes ?? existing.poll_interval_minutes,
             timestamp,
             existing.id,
           );
@@ -161,12 +191,23 @@ export class SubscriptionRepository {
       const created = this.database
         .query<
           SubscriptionRow,
-          [string, string, string, string, string | null, string, number | null, number, number]
+          [
+            string,
+            string,
+            string,
+            string,
+            string | null,
+            string,
+            number | null,
+            number,
+            number,
+            number,
+          ]
         >(
           `INSERT INTO subscriptions (
              id, adapter, source_key, source_url, title, metadata_json, next_poll_at,
-             created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             poll_interval_minutes, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING *`,
         )
         .get(
@@ -177,6 +218,7 @@ export class SubscriptionRepository {
           input.title ?? null,
           metadataJson ?? "{}",
           input.nextPollAt ?? null,
+          input.pollIntervalMinutes ?? 60,
           timestamp,
           timestamp,
         );
@@ -196,6 +238,39 @@ export class SubscriptionRepository {
     return row ? mapSubscription(row) : null;
   }
 
+  list(limit = 100): Subscription[] {
+    return this.database
+      .query<SubscriptionRow, [number]>(
+        `SELECT * FROM subscriptions
+         WHERE deleted_at IS NULL
+         ORDER BY created_at, id
+         LIMIT ?`,
+      )
+      .all(limit)
+      .map(mapSubscription);
+  }
+
+  findBySource(adapter: string, sourceKey: string): Subscription | null {
+    const row = this.database
+      .query<SubscriptionRow, [string, string]>(
+        `SELECT * FROM subscriptions
+         WHERE adapter = ? AND source_key = ? AND deleted_at IS NULL`,
+      )
+      .get(adapter, sourceKey);
+    return row ? mapSubscription(row) : null;
+  }
+
+  findBySourceUrl(sourceUrl: string): Subscription[] {
+    return this.database
+      .query<SubscriptionRow, [string]>(
+        `SELECT * FROM subscriptions
+         WHERE source_url = ? AND deleted_at IS NULL
+         ORDER BY created_at, id`,
+      )
+      .all(sourceUrl)
+      .map(mapSubscription);
+  }
+
   listDue(timestamp: number, limit = 100): Subscription[] {
     return this.database
       .query<SubscriptionRow, [number, number]>(
@@ -210,26 +285,58 @@ export class SubscriptionRepository {
   }
 
   setEnabled(id: string, enabled: boolean): Subscription | null {
+    const timestamp = this.now();
     const row = this.database
-      .query<SubscriptionRow, [number, number, string]>(
-        `UPDATE subscriptions SET enabled = ?, updated_at = ?
+      .query<SubscriptionRow, [number, number, number, number, string]>(
+        `UPDATE subscriptions
+         SET enabled = ?, next_poll_at = CASE WHEN ? = 1 THEN ? ELSE next_poll_at END,
+             updated_at = ?
          WHERE id = ? AND deleted_at IS NULL RETURNING *`,
       )
-      .get(enabled ? 1 : 0, this.now(), id);
+      .get(enabled ? 1 : 0, enabled ? 1 : 0, timestamp, timestamp, id);
     return row ? mapSubscription(row) : null;
   }
 
   recordFailure(id: string, errorMessage: string, failedAt: number): Subscription | null {
-    const row = this.database
-      .query<SubscriptionRow, [string, number, number, string]>(
-        `UPDATE subscriptions
-         SET consecutive_failures = consecutive_failures + 1,
-             last_error = ?, last_failed_at = ?, updated_at = ?
-         WHERE id = ? AND enabled = 1 AND deleted_at IS NULL
-         RETURNING *`,
+    const storedError = sanitizeErrorMessage(errorMessage);
+    const persist = this.database.transaction(() => {
+      const row = this.database
+        .query<SubscriptionRow, [string, number, number, number, string]>(
+          `UPDATE subscriptions
+           SET consecutive_failures = consecutive_failures + 1,
+               last_error = ?, last_failed_at = ?,
+               next_poll_at = ? + CASE consecutive_failures
+                 WHEN 0 THEN 300000
+                 WHEN 1 THEN 900000
+                 WHEN 2 THEN 3600000
+                 ELSE 21600000
+               END,
+               updated_at = ?
+           WHERE id = ? AND enabled = 1 AND deleted_at IS NULL
+           RETURNING *`,
+        )
+        .get(storedError, failedAt, failedAt, failedAt, id);
+      if (!row) return null;
+
+      this.database
+        .query<never, [string, string, number, string, number, number]>(
+          `INSERT INTO poll_failure_events (
+             id, subscription_id, attempt, error, failed_at, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(Bun.randomUUIDv7(), id, row.consecutive_failures, storedError, failedAt, failedAt);
+      return mapSubscription(row);
+    });
+    return persist();
+  }
+
+  listFailureEvents(limit = 100): PollFailureEvent[] {
+    return this.database
+      .query<PollFailureEventRow, [number]>(
+        `SELECT * FROM poll_failure_events ORDER BY failed_at, id LIMIT ?`,
       )
-      .get(errorMessage, failedAt, failedAt, id);
-    return row ? mapSubscription(row) : null;
+      .all(limit)
+      .map(mapFailureEvent);
   }
 
   softDelete(id: string): boolean {

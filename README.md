@@ -237,6 +237,18 @@ bun run curio probe https://example.com
 bun run curio probe https://example.com --json
 ```
 
+管理 subscriptions：
+
+```bash
+bun run curio follow https://example.com --candidate 1 --interval-minutes 60 --json
+bun run curio list --json
+bun run curio show <subscription-id-or-source-url> --json
+bun run curio pause <subscription-id-or-source-url> --json
+bun run curio resume <subscription-id-or-source-url> --json
+bun run curio poll <subscription-id-or-source-url> --json
+bun run curio remove <subscription-id-or-source-url> --json
+```
+
 Probe 只允許 public HTTP(S)，會阻擋 credentials、localhost、private/link-local/reserved IP，以及 redirect 至內網。它驗證 RSS、Atom 或 RDF 的 Content-Type 與 XML root，但不在此階段解析 entries 或建立 subscription。
 
 ### RSS Source Adapter
@@ -249,7 +261,9 @@ Probe 只允許 public HTTP(S)，會阻擋 credentials、localhost、private/lin
 {"backfillLimit": 20}
 ```
 
-合法範圍為 `0–500`。失敗會記錄 `consecutive_failures`、`last_error` 與 `last_failed_at`；成功或 `304 Not Modified` 會清除 failure state。Adapter 尚未接入 scheduler 或公開 CLI command。
+合法範圍為 `0–500`。失敗會記錄 `consecutive_failures`、`last_error`、`last_failed_at` 與 durable failure event；成功或 `304 Not Modified` 會清除 failure state。
+
+Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到期 subscriptions，同一 subscription 不會在單一程序內重疊。正常 poll interval 預設 60 分鐘，可設為 `5–10080` 分鐘；失敗依 `5m → 15m → 1h → 6h` backoff 重試。Failure events 會保留到後續 Telegram delivery pipeline 消費。
 
 ## 環境變數
 
