@@ -314,6 +314,10 @@ Runner 會：
 
 已提交的 migration 不應修改；schema 變更應新增下一個版本。
 
+## Production deployment
+
+`personal-vps` 的 immutable deployment、Telegram smoke、backup、restore 與 rollback 流程見 [`docs/deployment-personal-vps.md`](docs/deployment-personal-vps.md)。Production Compose 位於 [`deploy/compose.production.yaml`](deploy/compose.production.yaml)，不發布 host port。
+
 ## Docker
 
 建立 personal-vps 相容的 external network（本機第一次測試才需要）：
