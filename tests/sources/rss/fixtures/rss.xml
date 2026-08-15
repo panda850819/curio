@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Curio RSS</title>
+    <link>https://example.com/</link>
+    <description>Examples</description>
+    <item>
+      <title>Newest</title>
+      <link>https://example.com/newest</link>
+      <guid isPermaLink="false">rss-1</guid>
+      <pubDate>Fri, 15 Aug 2026 10:00:00 GMT</pubDate>
+      <author>Panda</author>
+      <category>curio</category>
+      <description>Newest summary</description>
+      <content:encoded><![CDATA[<p>Newest content</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Link identity</title>
+      <link>/link-identity</link>
+      <pubDate>Fri, 15 Aug 2026 09:00:00 GMT</pubDate>
+      <description>Plain text</description>
+    </item>
+    <item>
+      <title>Undated</title>
+      <description>Stable content without a URL</description>
+      <pubDate>not-a-date</pubDate>
+    </item>
+    <item></item>
+  </channel>
+</rss>

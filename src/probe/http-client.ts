@@ -67,6 +67,32 @@ function canonicalRequestUrl(url: URL): string {
   return url.toString();
 }
 
+function requestHeaderLines(headers: Readonly<Record<string, string>>): string {
+  const lines: string[] = [];
+  for (const [name, value] of Object.entries(headers)) {
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) {
+      throw new ProbeError("request_failed", `Invalid request header name: ${name}`);
+    }
+    const normalizedName = name.toLowerCase();
+    if (!["if-none-match", "if-modified-since"].includes(normalizedName)) {
+      throw new ProbeError("request_failed", `Unsupported conditional request header: ${name}`);
+    }
+    if (
+      [...value].some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint < 32 || codePoint === 127;
+      })
+    ) {
+      throw new ProbeError(
+        "request_failed",
+        `Invalid control character in request header: ${name}`,
+      );
+    }
+    lines.push(`${name}: ${value}\r\n`);
+  }
+  return lines.join("");
+}
+
 function decodeChunked(body: Buffer, maximumBytes: number): Buffer {
   const chunks: Buffer[] = [];
   let offset = 0;
@@ -212,8 +238,10 @@ export class SafeHttpClient implements ProbeHttpClient {
   async get(
     input: string,
     maximumBytes: (contentType: string | null) => number,
+    requestHeaders: Readonly<Record<string, string>> = {},
   ): Promise<HttpResponse> {
     let current = validateUrl(input);
+    let currentHeaders = requestHeaders;
     const visited = new Set<string>();
 
     for (let redirects = 0; ; redirects += 1) {
@@ -229,6 +257,7 @@ export class SafeHttpClient implements ProbeHttpClient {
         current,
         addresses[0] as ResolvedAddress,
         maximumBytes,
+        currentHeaders,
       );
       if (!REDIRECT_STATUSES.has(response.status)) return response;
       if (redirects >= this.maximumRedirects) {
@@ -243,7 +272,9 @@ export class SafeHttpClient implements ProbeHttpClient {
         );
       }
       try {
-        current = validateUrl(new URL(location, current).toString());
+        const redirected = validateUrl(new URL(location, current).toString());
+        if (redirected.origin !== current.origin) currentHeaders = {};
+        current = redirected;
       } catch (error) {
         if (error instanceof ProbeError) throw error;
         throw new ProbeError("redirect_invalid", `Invalid redirect target: ${location}`, error);
@@ -280,8 +311,10 @@ export class SafeHttpClient implements ProbeHttpClient {
     url: URL,
     address: ResolvedAddress,
     maximumBytes: (contentType: string | null) => number,
+    requestHeaders: Readonly<Record<string, string>>,
   ): Promise<HttpResponse> {
     return new Promise((resolve, reject) => {
+      const customHeaderLines = requestHeaderLines(requestHeaders);
       const tls = url.protocol === "https:";
       const port = Number(url.port || (tls ? 443 : 80));
       let settled = false;
@@ -320,6 +353,7 @@ export class SafeHttpClient implements ProbeHttpClient {
             "Accept: application/rss+xml, application/atom+xml, application/rdf+xml, application/xml, text/xml, text/html;q=0.9, */*;q=0.1\r\n" +
             "Accept-Encoding: gzip, deflate, br\r\n" +
             "User-Agent: Curio/0.1 (+https://github.com/panda850819/curio)\r\n" +
+            customHeaderLines +
             "Connection: close\r\n\r\n",
         );
       };

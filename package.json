@@ -25,6 +25,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
+    "feedsmith": "2.9.6",
     "ipaddr.js": "2.2.0",
     "saxes": "6.0.0"
   }

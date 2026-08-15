@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Curio Atom</title>
+  <id>https://example.com/atom</id>
+  <updated>2026-08-15T10:00:00Z</updated>
+  <entry>
+    <title>Atom entry</title>
+    <id>atom-1</id>
+    <link rel="alternate" href="/atom-entry" />
+    <published>2026-08-15T08:00:00Z</published>
+    <updated>2026-08-15T09:00:00Z</updated>
+    <author><name>Panda</name></author>
+    <category term="curio" />
+    <summary>Atom summary</summary>
+    <content type="html">&lt;p&gt;Atom content&lt;/p&gt;</content>
+  </entry>
+</feed>
