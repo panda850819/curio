@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "curio": "src/cli.ts"
+  },
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
+    "curio": "bun run src/cli.ts",
     "migrate": "bun run src/db/migrate.ts",
     "typecheck": "tsc --noEmit",
     "format": "biome format --write .",
@@ -19,5 +23,9 @@
     "@biomejs/biome": "2.2.0",
     "@types/bun": "1.3.5",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "ipaddr.js": "2.2.0",
+    "saxes": "6.0.0"
   }
 }
