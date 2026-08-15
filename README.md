@@ -223,6 +223,22 @@ curl http://127.0.0.1:3000/health
 {"status":"ok","service":"curio","uptimeSeconds":0}
 ```
 
+### URL Probe
+
+探測網站或直接 feed URL：
+
+```bash
+bun run curio probe https://example.com
+```
+
+提供 automation 使用的固定 JSON：
+
+```bash
+bun run curio probe https://example.com --json
+```
+
+Probe 只允許 public HTTP(S)，會阻擋 credentials、localhost、private/link-local/reserved IP，以及 redirect 至內網。它驗證 RSS、Atom 或 RDF 的 Content-Type 與 XML root，但不在此階段解析 entries 或建立 subscription。
+
 ## 環境變數
 
 | 變數 | 預設值 | 用途 |
