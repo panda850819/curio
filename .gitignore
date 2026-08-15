@@ -1,0 +1,23 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Runtime data
+data/*
+!data/.gitkeep
+media/*
+!media/.gitkeep
+backups/*
+!backups/.gitkeep
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Build and tooling
+coverage/
+dist/
+.DS_Store
+*.log
