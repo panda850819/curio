@@ -115,6 +115,7 @@ export interface PollWrite {
   cursor: JsonValue | null;
   polledAt: number;
   nextPollAt?: number | null;
+  deliveryExternalIds?: string[];
 }
 
 export interface PollWriteResult {

@@ -55,11 +55,13 @@ function payload(kind: "item" | "failure" = "item"): DeliveryPayload {
             externalId: "external",
             title: "Title <unsafe>",
             url: "https://example.com/item?a=1&b=2",
-            summary: "x".repeat(1_000),
+            summary: `First paragraph with &#21407; &amp; text.\n\n${"x".repeat(1_000)}`,
+            author: "Panda",
+            publishedAt: Date.UTC(2026, 4, 23),
             discoveredAt: 1,
             createdAt: 1,
             updatedAt: 1,
-            metadata: {},
+            metadata: { categories: ["personal notes", "生活"] },
           }
         : null,
     failureEvent:
@@ -91,10 +93,29 @@ describe("Telegram rendering", () => {
   test("escapes item content, bounds excerpts, and includes deterministic fields", () => {
     const message = renderTelegramMessage(payload());
     expect(message).toContain("Title &lt;unsafe&gt;");
-    expect(message).toContain("Source &amp; &lt;name&gt;");
-    expect(message).toContain("a=1&amp;b=2");
+    expect(message).toContain("拾跡 CURIO · Source &amp; &lt;name&gt;");
+    expect(message).toContain("<blockquote>First paragraph with 原 &amp; text.");
+    expect(message).toContain('href="https://example.com/item?a=1&amp;b=2"');
+    expect(message).toContain("Panda · 2026年5月23日");
+    expect(message).toContain("#RSS #personal_notes #生活");
     expect(message.length).toBeLessThanOrEqual(4_096);
     expect(message).not.toContain("<unsafe>");
+  });
+
+  test("uses deterministic fallbacks without broken markup", () => {
+    const fallback = payload();
+    if (!fallback.item) throw new Error("Expected item payload");
+    fallback.item.title = null;
+    fallback.item.url = null;
+    fallback.item.summary = null;
+    fallback.item.contentHtml = null;
+    fallback.item.author = null;
+    fallback.item.publishedAt = null;
+    const message = renderTelegramMessage(fallback);
+    expect(message).toContain("<b>未命名文章</b>");
+    expect(message).toContain("沒有可用的文章摘要。");
+    expect(message).toContain("作者未提供 · 日期未提供");
+    expect(message).not.toContain("href=");
   });
 
   test("renders failure context safely", () => {
@@ -116,7 +137,16 @@ describe("TelegramDestinationAdapter", () => {
     });
     const result = await new TelegramDestinationAdapter("secret-token", transport).send(payload());
     expect(result).toEqual({ outcome: "delivered", messageId: 42, httpStatus: 200 });
-    expect(transport.calls[0]?.body).toMatchObject({ chat_id: "@channel", parse_mode: "HTML" });
+    expect(transport.calls[0]?.body).toMatchObject({
+      chat_id: "@channel",
+      parse_mode: "HTML",
+      link_preview_options: {
+        is_disabled: false,
+        url: "https://example.com/item?a=1&b=2",
+        prefer_large_media: true,
+        show_above_text: true,
+      },
+    });
   });
 
   test("classifies malformed success and timeout as uncertain", async () => {

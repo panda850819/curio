@@ -381,6 +381,16 @@ export class ItemRepository {
   recordPoll(write: PollWrite): PollWriteResult {
     const preparedItems = write.items.map((item) => this.prepareItem(item));
     const cursorJson = serializeJson(write.cursor);
+    const deliveryExternalIds =
+      write.deliveryExternalIds === undefined ? null : new Set(write.deliveryExternalIds);
+    if (
+      deliveryExternalIds &&
+      [...deliveryExternalIds].some(
+        (externalId) => !preparedItems.some((item) => item.externalId === externalId),
+      )
+    ) {
+      throw new Error("deliveryExternalIds must reference items in the same poll write");
+    }
 
     const persist = this.database.transaction(() => {
       const subscription = this.database
@@ -423,7 +433,10 @@ export class ItemRepository {
           item.metadataJson,
         );
         insertedItems += result.changes;
-        if (result.changes === 1) {
+        if (
+          result.changes === 1 &&
+          (deliveryExternalIds === null || deliveryExternalIds.has(item.externalId))
+        ) {
           this.database
             .query<never, [string, string, number, number]>(
               `INSERT INTO deliveries (id, destination_id, item_id, created_at, updated_at)
