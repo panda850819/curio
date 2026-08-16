@@ -255,13 +255,13 @@ Probe 只允許 public HTTP(S)，會阻擋 credentials、localhost、private/lin
 
 `RssSourceAdapter` 支援 RSS 2.0、Atom 與 RSS 1.0/RDF。它使用 Probe 的安全 transport，保存 ETag／Last-Modified、以 conditional request poll，並將 entries 正規化成 canonical items。
 
-第一次 poll 預設 backfill 最新 20 篇，可在 subscription metadata 設定：
+第一次 poll 預設將最新 20 篇保存到 DB，但只替最新 1 篇建立 destination delivery。可在 subscription metadata 分別設定歷史收集與初次通知數量：
 
 ```json
-{"backfillLimit": 20}
+{"backfillLimit": 20, "initialDeliveryLimit": 1}
 ```
 
-合法範圍為 `0–500`。失敗會記錄 `consecutive_failures`、`last_error`、`last_failed_at` 與 durable failure event；成功或 `304 Not Modified` 會清除 failure state。
+兩者合法範圍為 `0–500`，且 `initialDeliveryLimit` 不得大於 `backfillLimit`。後續 polls 會替每篇真正新增的 item 建立 delivery。失敗會記錄 `consecutive_failures`、`last_error`、`last_failed_at` 與 durable failure event；成功或 `304 Not Modified` 會清除 failure state。
 
 Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到期 subscriptions，同一 subscription 不會在單一程序內重疊。正常 poll interval 預設 60 分鐘，可設為 `5–10080` 分鐘；失敗依 `5m → 15m → 1h → 6h` backoff 重試。
 

@@ -14,6 +14,7 @@ import {
 
 const FEED_LIMIT = 5 * 1024 * 1024;
 const DEFAULT_BACKFILL_LIMIT = 20;
+const DEFAULT_INITIAL_DELIVERY_LIMIT = 1;
 const MAXIMUM_BACKFILL_LIMIT = 500;
 const MAXIMUM_CURSOR_HEADER_LENGTH = 1_024;
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -43,6 +44,25 @@ function readBackfillLimit(subscription: Subscription): number {
     configured > MAXIMUM_BACKFILL_LIMIT
   ) {
     throw new Error(`backfillLimit must be an integer between 0 and ${MAXIMUM_BACKFILL_LIMIT}`);
+  }
+  return configured;
+}
+
+function readInitialDeliveryLimit(subscription: Subscription, backfillLimit: number): number {
+  if (!isJsonObject(subscription.metadata)) {
+    return Math.min(DEFAULT_INITIAL_DELIVERY_LIMIT, backfillLimit);
+  }
+  const configured = subscription.metadata.initialDeliveryLimit;
+  if (configured === undefined) return Math.min(DEFAULT_INITIAL_DELIVERY_LIMIT, backfillLimit);
+  if (
+    typeof configured !== "number" ||
+    !Number.isSafeInteger(configured) ||
+    configured < 0 ||
+    configured > backfillLimit
+  ) {
+    throw new Error(
+      `initialDeliveryLimit must be an integer between 0 and backfillLimit (${backfillLimit})`,
+    );
   }
   return configured;
 }
@@ -138,6 +158,8 @@ export class RssSourceAdapter {
     try {
       const cursor = readCursor(subscription);
       const backfillLimit = subscription.cursor === null ? readBackfillLimit(subscription) : null;
+      const initialDeliveryLimit =
+        backfillLimit === null ? null : readInitialDeliveryLimit(subscription, backfillLimit);
       const response = await this.client.get(
         subscription.sourceUrl,
         () => FEED_LIMIT,
@@ -180,6 +202,10 @@ export class RssSourceAdapter {
         cursor: cursorJson(nextCursor),
         polledAt,
         nextPollAt,
+        deliveryExternalIds:
+          initialDeliveryLimit === null
+            ? undefined
+            : selected.slice(0, initialDeliveryLimit).map((entry) => entry.item.externalId),
       });
 
       return { status: "fetched", ...result, warnings, cursor: nextCursor };

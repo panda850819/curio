@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { migrate } from "../../../src/db/migrations.ts";
 import { ItemRepository, SubscriptionRepository } from "../../../src/db/repositories.ts";
+import { DeliveryRepository } from "../../../src/delivery/repository.ts";
 import type { HttpHeaders, HttpResponse, ProbeHttpClient } from "../../../src/probe/types.ts";
 import { RssSourceAdapter } from "../../../src/sources/rss/adapter.ts";
 
@@ -98,6 +99,11 @@ function setup(metadata: Record<string, number> = {}) {
 describe("RssSourceAdapter", () => {
   test("applies latest-first initial backfill and sends conditional headers", async () => {
     const context = setup();
+    new DeliveryRepository(
+      context.database,
+      () => "destination-1",
+      () => 500,
+    ).syncTelegramDestination("@channel");
     const entries = Array.from({ length: 25 }, (_, index) => ({
       id: `entry-${index}`,
       title: `Entry ${index}`,
@@ -120,6 +126,15 @@ describe("RssSourceAdapter", () => {
     expect(storedIds).toHaveLength(20);
     expect(storedIds).toContain("entry-24");
     expect(storedIds).not.toContain("entry-0");
+    expect(
+      context.database
+        .query<{ external_id: string }, []>(
+          `SELECT i.external_id FROM deliveries d
+           JOIN items i ON i.id = d.item_id ORDER BY d.created_at`,
+        )
+        .all()
+        .map((row) => row.external_id),
+    ).toEqual(["entry-24"]);
 
     context.subscriptions.recordFailure(context.subscription.id, "temporary", 1_500);
     context.setNow(2_000);
@@ -270,6 +285,82 @@ describe("RssSourceAdapter", () => {
       context.subscriptions.recordFailure(context.subscription.id, "stale failure", 2_000),
     ).toBeNull();
     expect(context.subscriptions.findById(context.subscription.id)?.consecutiveFailures).toBe(0);
+    context.database.close();
+  });
+
+  test("supports storing initial history without creating deliveries", async () => {
+    const context = setup({ backfillLimit: 2, initialDeliveryLimit: 0 });
+    new DeliveryRepository(
+      context.database,
+      () => "destination-1",
+      () => 500,
+    ).syncTelegramDestination("@channel");
+    const adapter = new RssSourceAdapter(
+      new FakeClient([
+        response(
+          rss([
+            { id: "latest", title: "Latest" },
+            { id: "older", title: "Older" },
+          ]),
+        ),
+      ]),
+      context.subscriptions,
+      context.items,
+      context.now,
+    );
+
+    await adapter.poll(context.subscription.id);
+    expect(context.items.listBySubscription(context.subscription.id)).toHaveLength(2);
+    expect(context.database.query("SELECT id FROM deliveries").all()).toEqual([]);
+    context.database.close();
+  });
+
+  test("delivers every genuinely new item after the initial poll", async () => {
+    const context = setup({ backfillLimit: 2, initialDeliveryLimit: 1 });
+    new DeliveryRepository(
+      context.database,
+      () => "destination-1",
+      () => 500,
+    ).syncTelegramDestination("@channel");
+    const client = new FakeClient([
+      response(
+        rss([
+          { id: "latest", title: "Latest" },
+          { id: "old", title: "Old" },
+        ]),
+      ),
+      response(
+        rss([
+          { id: "new-2", title: "New 2" },
+          { id: "new-1", title: "New 1" },
+          { id: "latest", title: "Latest" },
+          { id: "old", title: "Old" },
+        ]),
+      ),
+    ]);
+    const adapter = new RssSourceAdapter(client, context.subscriptions, context.items, context.now);
+
+    await adapter.poll(context.subscription.id);
+    context.setNow(2_000);
+    await adapter.poll(context.subscription.id);
+    const deliveredExternalIds = context.database
+      .query<{ external_id: string }, []>(
+        `SELECT i.external_id FROM deliveries d JOIN items i ON i.id = d.item_id ORDER BY d.created_at`,
+      )
+      .all()
+      .map((row) => row.external_id);
+    expect(deliveredExternalIds).toEqual(["latest", "new-2", "new-1"]);
+    context.database.close();
+  });
+
+  test("rejects invalid initial delivery configuration before requesting", async () => {
+    const context = setup({ backfillLimit: 1, initialDeliveryLimit: 2 });
+    const client = new FakeClient([response(rss([{ id: "entry", title: "Entry" }]))]);
+    const adapter = new RssSourceAdapter(client, context.subscriptions, context.items, context.now);
+
+    await expect(adapter.poll(context.subscription.id)).rejects.toThrow("initialDeliveryLimit");
+    expect(client.requests).toEqual([]);
+    expect(context.items.listBySubscription(context.subscription.id)).toEqual([]);
     context.database.close();
   });
 

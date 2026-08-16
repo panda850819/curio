@@ -65,30 +65,124 @@ function escapedWithin(value: string, maximumOutput: number): string {
   return output;
 }
 
+function decodeHtmlEntities(value: string): string {
+  const named: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"',
+  };
+  return value
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hexadecimal: string) => {
+      const codePoint = Number.parseInt(hexadecimal, 16);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : "�";
+    })
+    .replace(/&#([0-9]+);/g, (_match, decimal: string) => {
+      const codePoint = Number.parseInt(decimal, 10);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : "�";
+    })
+    .replace(
+      /&(amp|apos|gt|lt|nbsp|quot);/gi,
+      (_match, entity: string) => named[entity.toLowerCase()] ?? "�",
+    );
+}
+
 function plainExcerpt(payload: DeliveryPayload): string {
   const item = payload.item;
-  if (!item) return "No item content available.";
-  const raw = item.contentText ?? item.summary ?? item.contentHtml?.replace(/<[^>]*>/g, " ") ?? "";
-  const compact = raw.replace(/\s+/g, " ").trim();
-  return compact || "No preview available.";
+  if (!item) return "沒有可用的文章摘要。";
+  const raw = item.contentText ?? item.summary ?? item.contentHtml ?? "";
+  const withParagraphs = raw
+    .replace(/<\/(p|div|h[1-6]|li)>/gi, "\n\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]*>/g, " ");
+  const paragraphs = decodeHtmlEntities(withParagraphs)
+    .split(/\n+/)
+    .map((paragraph) => paragraph.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean);
+  const compact = paragraphs.join("\n\n");
+  if (!compact) return "沒有可用的文章摘要。";
+  const characters = [...compact];
+  if (characters.length <= 600) return compact;
+  const candidate = characters.slice(0, 600).join("");
+  const boundary = Math.max(
+    candidate.lastIndexOf("。"),
+    candidate.lastIndexOf("！"),
+    candidate.lastIndexOf("？"),
+    candidate.lastIndexOf(" "),
+  );
+  return `${candidate.slice(0, boundary >= 360 ? boundary + 1 : candidate.length).trim()}…`;
+}
+
+function publicationLine(payload: DeliveryPayload): string {
+  const author = payload.item?.author?.trim() || "作者未提供";
+  const publishedAt = payload.item?.publishedAt;
+  const publishedDate =
+    publishedAt === null || publishedAt === undefined ? null : new Date(publishedAt);
+  const date =
+    publishedDate === null || !Number.isFinite(publishedDate.getTime())
+      ? "日期未提供"
+      : new Intl.DateTimeFormat("zh-TW", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          timeZone: "Asia/Taipei",
+        }).format(publishedDate);
+  return `${author} · ${date}`;
+}
+
+function itemTags(payload: DeliveryPayload): string {
+  const sourceTag = payload.subscription.sourceUrl.includes(".substack.com") ? "#Substack" : "#RSS";
+  const metadata = payload.item?.metadata;
+  const categories =
+    metadata !== null && typeof metadata === "object" && !Array.isArray(metadata)
+      ? metadata.categories
+      : undefined;
+  const categoryTags = Array.isArray(categories)
+    ? categories
+        .filter((category): category is string => typeof category === "string")
+        .map((category) =>
+          category
+            .trim()
+            .replace(/\s+/g, "_")
+            .replace(/[^\p{L}\p{N}_]/gu, ""),
+        )
+        .filter(Boolean)
+        .slice(0, 3)
+        .map((category) => `#${category}`)
+    : [];
+  return [sourceTag, ...categoryTags].join(" ");
 }
 
 export function renderTelegramMessage(payload: DeliveryPayload): string {
   if (payload.item) {
-    const title = escapedWithin(payload.item.title?.trim() || "Untitled item", 400);
+    const title = escapedWithin(payload.item.title?.trim() || "未命名文章", 350);
     const source = escapedWithin(
       payload.subscription.title?.trim() || redactSensitiveUrls(payload.subscription.sourceUrl),
-      600,
+      400,
     );
-    const excerpt = escapedWithin([...plainExcerpt(payload)].slice(0, 800).join(""), 1_800);
-    const lines = [`<b>${title}</b>`, `<i>${source}</i>`, "", excerpt];
-    if (payload.item.url) {
-      const link = escapedWithin(payload.item.url, 1_000);
-      lines.push("", `<a href="${link}">Read original</a>`);
-    } else {
-      lines.push("", "No canonical link available.");
-    }
-    return lines.join("\n").slice(0, 4_096);
+    const excerpt = escapedWithin(plainExcerpt(payload), 1_800);
+    const publication = escapedWithin(publicationLine(payload), 350);
+    const tags = escapedWithin(itemTags(payload), 250);
+    const linkedTitle = payload.item.url
+      ? `<b><a href="${escapedWithin(payload.item.url, 500)}">${title}</a></b>`
+      : `<b>${title}</b>`;
+    return [
+      `<b>拾跡 CURIO · ${source}</b>`,
+      "",
+      linkedTitle,
+      "",
+      `<blockquote>${excerpt}</blockquote>`,
+      `<i>${publication}</i>`,
+      tags,
+    ]
+      .join("\n")
+      .slice(0, 4_096);
   }
 
   const event = payload.failureEvent;
@@ -148,12 +242,22 @@ export class TelegramDestinationAdapter {
 
   async send(payload: DeliveryPayload): Promise<TelegramSendResult> {
     try {
-      const response = await this.transport.send(this.token, {
+      const request: Record<string, unknown> = {
         chat_id: payload.chatId,
         text: renderTelegramMessage(payload),
         parse_mode: "HTML",
-        disable_web_page_preview: true,
-      });
+      };
+      if (payload.item?.url) {
+        request.link_preview_options = {
+          is_disabled: false,
+          url: payload.item.url,
+          prefer_large_media: true,
+          show_above_text: true,
+        };
+      } else {
+        request.link_preview_options = { is_disabled: true };
+      }
+      const response = await this.transport.send(this.token, request);
       const parsed = parseJson(response.body);
       if (response.status >= 200 && response.status < 300) {
         const result = parsed?.result;
