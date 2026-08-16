@@ -90,16 +90,15 @@ class FakeTransport implements TelegramTransport {
 }
 
 describe("Telegram rendering", () => {
-  test("escapes item content, bounds excerpts, and includes deterministic fields", () => {
+  test("renders a compact collection label without repeating preview content", () => {
     const message = renderTelegramMessage(payload());
-    expect(message).toContain("Title &lt;unsafe&gt;");
-    expect(message).toContain("拾跡 CURIO · Source &amp; &lt;name&gt;");
-    expect(message).toContain("<blockquote>First paragraph with 原 &amp; text.");
-    expect(message).toContain('href="https://example.com/item?a=1&amp;b=2"');
-    expect(message).toContain("Panda · 2026年5月23日");
-    expect(message).toContain("#RSS #personal_notes #生活");
-    expect(message.length).toBeLessThanOrEqual(4_096);
-    expect(message).not.toContain("<unsafe>");
+    expect(message).toBe(
+      "<b>拾跡 · Source &amp; &lt;name&gt;</b>\n<i>Panda · 2026年5月23日</i>\n#personal_notes #生活",
+    );
+    expect(message).not.toContain("Title");
+    expect(message).not.toContain("First paragraph");
+    expect(message).not.toContain("Substack");
+    expect(message).not.toContain("RSS");
   });
 
   test("uses deterministic fallbacks without broken markup", () => {
@@ -111,11 +110,9 @@ describe("Telegram rendering", () => {
     fallback.item.contentHtml = null;
     fallback.item.author = null;
     fallback.item.publishedAt = null;
+    fallback.item.metadata = {};
     const message = renderTelegramMessage(fallback);
-    expect(message).toContain("<b>未命名文章</b>");
-    expect(message).toContain("沒有可用的文章摘要。");
-    expect(message).toContain("作者未提供 · 日期未提供");
-    expect(message).not.toContain("href=");
+    expect(message).toBe("<b>拾跡 · Source &amp; &lt;name&gt;</b>\n<i>作者未提供 · 日期未提供</i>");
   });
 
   test("renders failure context safely", () => {
