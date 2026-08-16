@@ -3,6 +3,7 @@ export interface Config {
   port: number;
   databasePath: string;
   telegram: { botToken: string; chatId: string } | null;
+  x: { authToken: string; ct0: string } | null;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -26,5 +27,17 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be configured together");
   }
 
-  return { host, port, databasePath, telegram: botToken ? { botToken, chatId } : null };
+  const xAuthToken = env.X_AUTH_TOKEN?.trim() || "";
+  const xCt0 = env.X_CT0?.trim() || "";
+  if (Boolean(xAuthToken) !== Boolean(xCt0)) {
+    throw new Error("X_AUTH_TOKEN and X_CT0 must be configured together");
+  }
+
+  return {
+    host,
+    port,
+    databasePath,
+    telegram: botToken ? { botToken, chatId } : null,
+    x: xAuthToken ? { authToken: xAuthToken, ct0: xCt0 } : null,
+  };
 }

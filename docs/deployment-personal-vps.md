@@ -88,7 +88,31 @@ df -h /opt/curio
 
 Use `curio deliveries retry <delivery-id>` only after reviewing an `uncertain` or `permanent_failure` record. A retry can duplicate a Telegram message when the original outcome was ambiguous.
 
-## 6. Credential rotation
+## 6. X source credentials
+
+The optional `xbird` adapter requires both `X_AUTH_TOKEN` and `X_CT0`. These are X session cookies with full account authority even though Curio invokes only the read path. Use a dedicated read account and never paste values into chat, Git, shell arguments, or logs.
+
+Append or rotate them through a no-echo root shell, then rerun `install.sh` so the restricted runtime copy is refreshed:
+
+```bash
+ssh personal-vps
+sudo bash -c '
+  set -euo pipefail
+  read -r -s -p "X auth_token: " auth; printf "\n"
+  read -r -s -p "X ct0: " ct0; printf "\n"
+  tmp=$(mktemp)
+  grep -vE "^(X_AUTH_TOKEN|X_CT0)=" /opt/curio/.env > "$tmp"
+  printf "X_AUTH_TOKEN=%s\nX_CT0=%s\n" "$auth" "$ct0" >> "$tmp"
+  install -o root -g root -m 0600 "$tmp" /opt/curio/.env
+  rm -f "$tmp"
+  unset auth ct0
+'
+exit
+```
+
+Production sets `XBIRD_DISABLE_LIVE_WRITES=1` inside the child process, invokes only `user-tweets` with fixed argv, and does not pass Telegram credentials to the child environment.
+
+## 7. Credential rotation
 
 1. Stop Curio gracefully.
 2. Recreate `/opt/curio/.env` with the no-echo procedure above.
@@ -97,7 +121,7 @@ Use `curio deliveries retry <delivery-id>` only after reviewing an `uncertain` o
 5. Run `status.sh`.
 6. Revoke the old token only after the new bot successfully posts.
 
-## 7. Rollback
+## 8. Rollback
 
 Always create a backup before rollback:
 

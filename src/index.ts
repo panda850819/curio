@@ -9,7 +9,10 @@ import { DeliveryWorker } from "./delivery/worker.ts";
 import { handleRequest } from "./http.ts";
 import { SafeHttpClient, SystemResolver } from "./probe/index.ts";
 import { PollCoordinator, PollScheduler } from "./scheduler.ts";
+import { SourceRouter } from "./sources/router.ts";
 import { RssSourceAdapter } from "./sources/rss/index.ts";
+import { XSourceAdapter } from "./sources/x/adapter.ts";
+import { ProcessXbirdClient } from "./sources/x/client.ts";
 
 const config = loadConfig();
 const database = openDatabase(config.databasePath);
@@ -17,12 +20,18 @@ const migrationsPath = process.env.MIGRATIONS_PATH || resolve(import.meta.dir, "
 const appliedMigrations = migrate(database, migrationsPath);
 const subscriptions = new SubscriptionRepository(database);
 const items = new ItemRepository(database);
-const adapter = new RssSourceAdapter(
+const rssAdapter = new RssSourceAdapter(
   new SafeHttpClient(new SystemResolver()),
   subscriptions,
   items,
 );
-const coordinator = new PollCoordinator(adapter);
+const xClient = config.x
+  ? new ProcessXbirdClient(config.x.authToken, config.x.ct0)
+  : { userTweets: () => Promise.reject(new Error("X credentials are not configured")) };
+const xAdapter = new XSourceAdapter(xClient, subscriptions, items);
+const coordinator = new PollCoordinator(
+  new SourceRouter(subscriptions, { rss: rssAdapter, x: xAdapter }),
+);
 const scheduler = new PollScheduler(subscriptions, coordinator);
 const schedulerAbort = new AbortController();
 const deliveryAbort = new AbortController();

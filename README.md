@@ -111,9 +111,8 @@ Persistent Volume
 第一批可考慮：
 
 - RSS / Atom；
-- GitHub API 或 `gh`；
-- YouTube API 或 `yt-dlp`；
-- 後續加入 `xbird` 與 Telegram public channel。
+- X profiles via pinned `xbird`；
+- 後續加入 GitHub、YouTube 與 Telegram public channel。
 
 ### Destination Adapter
 
@@ -265,6 +264,12 @@ Probe 只允許 public HTTP(S)，會阻擋 credentials、localhost、private/lin
 
 Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到期 subscriptions，同一 subscription 不會在單一程序內重疊。正常 poll interval 預設 60 分鐘，可設為 `5–10080` 分鐘；失敗依 `5m → 15m → 1h → 6h` backoff 重試。
 
+### X Source Adapter
+
+X profile URL 會建立 `x` subscription。Adapter 透過固定 argv 執行 pin 至 commit `5098a67898acf81927422c4be760705c29a0e2d1` 的 `xbird user-tweets`，預設收錄原始 posts 與 quote posts，排除 replies 與 reposts。Tweet ID 是 immutable external ID；首次最多保存 20 則並通知最新 1 則。
+
+`xbird` child process 強制 `XBIRD_DISABLE_LIVE_WRITES=1`，且只取得 allowlisted environment，不會繼承 Telegram token。`X_AUTH_TOKEN` 與 `X_CT0` 是具有完整帳號能力的 session cookies，應使用 dedicated read account，並只存於 runtime secret。
+
 ### Telegram delivery
 
 同時設定 `TELEGRAM_BOT_TOKEN` 與 `TELEGRAM_CHAT_ID` 後，Curio 會把新 items 與每次 poll failure 送到單一 Telegram channel。既有 items 不補送；尚未通知的 failure events 會補入 delivery queue。
@@ -285,6 +290,8 @@ Telegram 429 依 `retry_after` 重試，network/5xx 最多嘗試 5 次。Timeout
 | `DATABASE_PATH` | `./data/curio.db` | SQLite database path；container 使用 `/data/curio.db` |
 | `TELEGRAM_BOT_TOKEN` | 未設定 | Telegram Bot token；必須與 chat ID 同時設定 |
 | `TELEGRAM_CHAT_ID` | 未設定 | Telegram channel username 或 numeric chat ID |
+| `X_AUTH_TOKEN` | 未設定 | X `auth_token` session cookie；必須與 `X_CT0` 同時設定 |
+| `X_CT0` | 未設定 | X CSRF session cookie；必須與 `X_AUTH_TOKEN` 同時設定 |
 | `CURIO_NETWORK` | `personal-infra_private` | Compose 使用的既有 external Docker network |
 | `MIGRATIONS_PATH` | 專案的 `migrations/` | 只在自訂 migration 位置時設定 |
 

@@ -8,6 +8,7 @@ describe("loadConfig", () => {
       port: 3000,
       databasePath: "./data/curio.db",
       telegram: null,
+      x: null,
     });
   });
 
@@ -20,6 +21,15 @@ describe("loadConfig", () => {
     });
     expect(() => loadConfig({ TELEGRAM_BOT_TOKEN: "token" })).toThrow("configured together");
     expect(() => loadConfig({ TELEGRAM_CHAT_ID: "@channel" })).toThrow("configured together");
+  });
+
+  test("loads X only when both cookie values are configured", () => {
+    expect(loadConfig({ X_AUTH_TOKEN: "auth", X_CT0: "csrf" }).x).toEqual({
+      authToken: "auth",
+      ct0: "csrf",
+    });
+    expect(() => loadConfig({ X_AUTH_TOKEN: "auth" })).toThrow("configured together");
+    expect(() => loadConfig({ X_CT0: "csrf" })).toThrow("configured together");
   });
 
   test("rejects invalid ports", () => {
