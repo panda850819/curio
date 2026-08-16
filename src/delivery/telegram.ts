@@ -65,60 +65,6 @@ function escapedWithin(value: string, maximumOutput: number): string {
   return output;
 }
 
-function decodeHtmlEntities(value: string): string {
-  const named: Record<string, string> = {
-    amp: "&",
-    apos: "'",
-    gt: ">",
-    lt: "<",
-    nbsp: " ",
-    quot: '"',
-  };
-  return value
-    .replace(/&#x([0-9a-f]+);/gi, (_match, hexadecimal: string) => {
-      const codePoint = Number.parseInt(hexadecimal, 16);
-      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
-        ? String.fromCodePoint(codePoint)
-        : "�";
-    })
-    .replace(/&#([0-9]+);/g, (_match, decimal: string) => {
-      const codePoint = Number.parseInt(decimal, 10);
-      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
-        ? String.fromCodePoint(codePoint)
-        : "�";
-    })
-    .replace(
-      /&(amp|apos|gt|lt|nbsp|quot);/gi,
-      (_match, entity: string) => named[entity.toLowerCase()] ?? "�",
-    );
-}
-
-function plainExcerpt(payload: DeliveryPayload): string {
-  const item = payload.item;
-  if (!item) return "沒有可用的文章摘要。";
-  const raw = item.contentText ?? item.summary ?? item.contentHtml ?? "";
-  const withParagraphs = raw
-    .replace(/<\/(p|div|h[1-6]|li)>/gi, "\n\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]*>/g, " ");
-  const paragraphs = decodeHtmlEntities(withParagraphs)
-    .split(/\n+/)
-    .map((paragraph) => paragraph.replace(/[ \t]+/g, " ").trim())
-    .filter(Boolean);
-  const compact = paragraphs.join("\n\n");
-  if (!compact) return "沒有可用的文章摘要。";
-  const characters = [...compact];
-  if (characters.length <= 600) return compact;
-  const candidate = characters.slice(0, 600).join("");
-  const boundary = Math.max(
-    candidate.lastIndexOf("。"),
-    candidate.lastIndexOf("！"),
-    candidate.lastIndexOf("？"),
-    candidate.lastIndexOf(" "),
-  );
-  return `${candidate.slice(0, boundary >= 360 ? boundary + 1 : candidate.length).trim()}…`;
-}
-
 function publicationLine(payload: DeliveryPayload): string {
   const author = payload.item?.author?.trim() || "作者未提供";
   const publishedAt = payload.item?.publishedAt;
@@ -137,7 +83,6 @@ function publicationLine(payload: DeliveryPayload): string {
 }
 
 function itemTags(payload: DeliveryPayload): string {
-  const sourceTag = payload.subscription.sourceUrl.includes(".substack.com") ? "#Substack" : "#RSS";
   const metadata = payload.item?.metadata;
   const categories =
     metadata !== null && typeof metadata === "object" && !Array.isArray(metadata)
@@ -156,33 +101,18 @@ function itemTags(payload: DeliveryPayload): string {
         .slice(0, 3)
         .map((category) => `#${category}`)
     : [];
-  return [sourceTag, ...categoryTags].join(" ");
+  return categoryTags.join(" ");
 }
 
 export function renderTelegramMessage(payload: DeliveryPayload): string {
   if (payload.item) {
-    const title = escapedWithin(payload.item.title?.trim() || "未命名文章", 350);
     const source = escapedWithin(
       payload.subscription.title?.trim() || redactSensitiveUrls(payload.subscription.sourceUrl),
       400,
     );
-    const excerpt = escapedWithin(plainExcerpt(payload), 1_800);
     const publication = escapedWithin(publicationLine(payload), 350);
     const tags = escapedWithin(itemTags(payload), 250);
-    const linkedTitle = payload.item.url
-      ? `<b><a href="${escapedWithin(payload.item.url, 500)}">${title}</a></b>`
-      : `<b>${title}</b>`;
-    return [
-      `<b>拾跡 CURIO · ${source}</b>`,
-      "",
-      linkedTitle,
-      "",
-      `<blockquote>${excerpt}</blockquote>`,
-      `<i>${publication}</i>`,
-      tags,
-    ]
-      .join("\n")
-      .slice(0, 4_096);
+    return [`<b>拾跡 · ${source}</b>`, `<i>${publication}</i>`, tags].filter(Boolean).join("\n");
   }
 
   const event = payload.failureEvent;
