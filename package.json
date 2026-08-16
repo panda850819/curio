@@ -25,6 +25,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
+    "@panda850819/xbird": "github:panda850819/xbird#5098a67898acf81927422c4be760705c29a0e2d1",
     "feedsmith": "2.9.6",
     "ipaddr.js": "2.2.0",
     "saxes": "6.0.0"

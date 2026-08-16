@@ -12,9 +12,13 @@ import { DELIVERY_STATUSES } from "./delivery/types.ts";
 import type { Delivery, DeliveryStatus, Subscription } from "./domain/types.ts";
 import type { ProbeResult, SubscriptionCandidate } from "./probe/index.ts";
 import { ProbeError, probe, SafeHttpClient, SystemResolver } from "./probe/index.ts";
-import { PollCoordinator } from "./scheduler.ts";
+import { PollCoordinator, type SourcePollResult } from "./scheduler.ts";
 import { redactSensitiveUrls } from "./security/redaction.ts";
-import { type RssPollResult, RssSourceAdapter } from "./sources/rss/index.ts";
+import { SourceRouter } from "./sources/router.ts";
+import { RssSourceAdapter } from "./sources/rss/index.ts";
+import { XSourceAdapter } from "./sources/x/adapter.ts";
+import { ProcessXbirdClient } from "./sources/x/client.ts";
+import { xProbeResult } from "./sources/x/probe.ts";
 
 interface CliIo {
   stdout(message: string): void;
@@ -28,7 +32,7 @@ export interface CliDependencies {
   resolveSubscription(target: string): Subscription;
   setEnabled(id: string, enabled: boolean): Subscription;
   remove(id: string): void;
-  poll(id: string): Promise<RssPollResult>;
+  poll(id: string): Promise<SourcePollResult>;
   listDeliveries(status?: DeliveryStatus): Delivery[];
   retryDelivery(id: string): Delivery;
   io: CliIo;
@@ -291,7 +295,15 @@ if (import.meta.main) {
     const client = new SafeHttpClient(new SystemResolver());
     const subscriptions = new SubscriptionRepository(database);
     const items = new ItemRepository(database);
-    const coordinator = new PollCoordinator(new RssSourceAdapter(client, subscriptions, items));
+    const rssAdapter = new RssSourceAdapter(client, subscriptions, items);
+    const xClient =
+      process.env.X_AUTH_TOKEN && process.env.X_CT0
+        ? new ProcessXbirdClient(process.env.X_AUTH_TOKEN, process.env.X_CT0)
+        : { userTweets: () => Promise.reject(new Error("X credentials are not configured")) };
+    const xAdapter = new XSourceAdapter(xClient, subscriptions, items);
+    const coordinator = new PollCoordinator(
+      new SourceRouter(subscriptions, { rss: rssAdapter, x: xAdapter }),
+    );
     const deliveries = new DeliveryRepository(database);
     const resolveSubscription = (target: string): Subscription => {
       const byId = subscriptions.findById(target);
@@ -305,11 +317,12 @@ if (import.meta.main) {
       return byUrl[0] as Subscription;
     };
     const exitCode = await runCli(process.argv.slice(2), {
-      probeUrl: (url) => probe(url, client),
+      probeUrl: (url) =>
+        Promise.resolve(xProbeResult(url)).then((result) => result ?? probe(url, client)),
       follow: (candidate, intervalMinutes) => {
         try {
           return subscriptions.create({
-            adapter: "rss",
+            adapter: candidate.adapter,
             sourceKey: candidate.sourceKey,
             sourceUrl: candidate.sourceUrl,
             title: candidate.title,
@@ -318,7 +331,7 @@ if (import.meta.main) {
           });
         } catch (error) {
           if (!(error instanceof DuplicateSubscriptionError)) throw error;
-          const existing = subscriptions.findBySource("rss", candidate.sourceKey);
+          const existing = subscriptions.findBySource(candidate.adapter, candidate.sourceKey);
           if (!existing) throw error;
           return existing;
         }

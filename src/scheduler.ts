@@ -1,6 +1,4 @@
 import type { SubscriptionRepository } from "./db/repositories.ts";
-import type { RssPollResult } from "./sources/rss/types.ts";
-
 export class PollAlreadyRunningError extends Error {
   constructor(subscriptionId: string) {
     super(`Poll already running: ${subscriptionId}`);
@@ -15,17 +13,23 @@ export class PollCoordinatorStoppedError extends Error {
   }
 }
 
+export interface SourcePollResult {
+  status: string;
+  insertedItems: number;
+  duplicateItems: number;
+}
+
 export interface SourcePoller {
-  poll(subscriptionId: string): Promise<RssPollResult>;
+  poll(subscriptionId: string): Promise<SourcePollResult>;
 }
 
 export class PollCoordinator {
-  private readonly inFlight = new Map<string, Promise<RssPollResult>>();
+  private readonly inFlight = new Map<string, Promise<SourcePollResult>>();
   private accepting = true;
 
   constructor(private readonly poller: SourcePoller) {}
 
-  poll(subscriptionId: string): Promise<RssPollResult> {
+  poll(subscriptionId: string): Promise<SourcePollResult> {
     if (!this.accepting) return Promise.reject(new PollCoordinatorStoppedError());
     if (this.inFlight.has(subscriptionId)) {
       return Promise.reject(new PollAlreadyRunningError(subscriptionId));
