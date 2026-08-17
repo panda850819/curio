@@ -240,6 +240,70 @@ function adapterLabel(value: string): string {
   );
 }
 
+interface SourcePresentation {
+  family: string;
+  role: string;
+  format: string;
+  name: string;
+  topic: string | null;
+}
+
+function sourcePresentation(subscription: Subscription, latestItem?: Item): SourcePresentation {
+  let hostname = "";
+  let pathname = "";
+  try {
+    const url = new URL(subscription.sourceUrl);
+    hostname = url.hostname.toLowerCase().replace(/^www\\./u, "");
+    pathname = url.pathname.toLowerCase();
+  } catch {
+    // The source URL has already passed source validation; retain a safe fallback for display.
+  }
+
+  const isSubstack = hostname.endsWith(".substack.com");
+  const family =
+    subscription.adapter === "x" || hostname === "x.com" || hostname === "twitter.com"
+      ? "X"
+      : subscription.adapter === "telegram" || subscription.adapter === "telegram_html"
+        ? "Telegram"
+        : isSubstack
+          ? "Substack"
+          : subscription.adapter === "youtube"
+            ? "YouTube"
+            : subscription.adapter === "github" || subscription.adapter === "github_atom"
+              ? "GitHub"
+              : subscription.adapter === "html"
+                ? "網站頁面"
+                : subscription.adapter === "rss" && pathname.includes("atom")
+                  ? "網站 Atom"
+                  : subscription.adapter === "rss"
+                    ? "網站 Feed"
+                    : adapterLabel(subscription.adapter);
+  const role =
+    family === "X"
+      ? "人物動態"
+      : family === "Telegram"
+        ? "頻道"
+        : family === "Substack"
+          ? "出版物"
+          : family === "網站頁面"
+            ? "頁面監測"
+            : "來源";
+  const format =
+    subscription.adapter === "rss"
+      ? pathname.includes("atom")
+        ? "Atom"
+        : "RSS"
+      : adapterLabel(subscription.adapter);
+  const fallbackName = hostname || subscription.sourceUrl;
+  return {
+    family,
+    role,
+    format,
+    name: subscription.title?.trim() || latestItem?.author?.trim() || fallbackName,
+    topic: latestItem?.title?.trim() || null,
+  };
+}
+
 function statusPill(status: string, label = status): string {
   const normalized = status.toLowerCase().replaceAll("_", "-");
   return `<span class="status status-${escapeHtml(normalized)}">${buttonLabel(statusLabel(label))}</span>`;
@@ -436,6 +500,18 @@ main { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 3rem 0 
 .record-row h3 { font-size: 0.98rem; line-height: 1.35; }
 .record-row p { color: var(--ink-soft); font-size: 0.82rem; overflow-wrap: anywhere; }
 .record-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem 0.85rem; color: var(--ink-soft); font-size: 0.8rem; }
+.source-groups { display: grid; gap: 1.5rem; }
+.source-group { display: grid; gap: 0.45rem; }
+.source-group-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; padding-bottom: 0.45rem; border-bottom: 2px solid var(--ink); }
+.source-group-heading h3 { margin: 0; font-family: "Iowan Old Style", Baskerville, "Songti TC", serif; font-size: 1.25rem; font-weight: 600; }
+.source-group-heading span { color: var(--ink-soft); font-size: 0.78rem; }
+.source-row { align-items: start; }
+.source-kicker { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 0.7rem; margin-bottom: 0.25rem; color: var(--ink-soft); font-size: 0.76rem; }
+.source-family { color: var(--rust); font-weight: 800; }
+.source-format { padding: 0.08rem 0.38rem; border: 1px solid var(--line); border-radius: 99px; font-size: 0.68rem; font-weight: 800; }
+.source-topic { display: flex; gap: 0.45rem; align-items: baseline; margin-top: 0.35rem !important; color: var(--ink); }
+.source-topic-label { color: var(--ink-soft); font-size: 0.74rem; white-space: nowrap; }
+.source-url { margin-top: 0.2rem !important; color: var(--ink-soft); font-size: 0.74rem !important; }
 .record-actions { display: flex; justify-content: end; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
 .record-actions .button, .record-actions .button-link { min-height: 2.25rem; padding: 0.35rem 0.65rem; font-size: 0.8rem; }
 .status { display: inline-flex; align-items: center; gap: 0.3rem; width: fit-content; padding: 0.12rem 0.48rem; border: 1px solid var(--line); border-radius: 99px; font-size: 0.72rem; font-weight: 800; line-height: 1.45; }
@@ -600,32 +676,78 @@ function subscriptionsContent(app: CurioApplication, session: UiSession, url: UR
   const query = url.searchParams.get("q")?.trim() ?? "";
   const filter = url.searchParams.get("status") ?? "all";
   let subscriptions = app.services.subscriptions.list(MAX_LIST_ITEMS);
-  if (query) {
-    const needle = query.toLocaleLowerCase("zh-TW");
-    subscriptions = subscriptions.filter((subscription) =>
-      [subscription.title ?? "", subscription.sourceUrl, subscription.adapter].some((value) =>
-        value.toLocaleLowerCase("zh-TW").includes(needle),
-      ),
-    );
-  }
   if (filter === "active")
     subscriptions = subscriptions.filter((subscription) => subscription.enabled);
   if (filter === "paused")
     subscriptions = subscriptions.filter((subscription) => !subscription.enabled);
-  const rows = subscriptions
-    .map(
-      (subscription) =>
-        `<article class="record-row"><div><h3><a href="/subscriptions/${encodeURIComponent(subscription.id)}">${displayText(subscription.title || subscription.sourceUrl, 160)}</a></h3><div class="record-meta">${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}<span>${adapterLabel(subscription.adapter)}</span><span>${scheduleLabel(subscription)}</span>${subscription.lastError ? `<span>${displayText(subscription.consecutiveFailures)} 次失敗</span>` : ""}</div><p>${displayUrl(subscription.sourceUrl)}</p></div><div class="record-actions">${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停" : "恢復", { className: "button-secondary" })}${pollAction(subscription, subscription.id, session, "button-secondary", "立即輪詢")}${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/remove`, session, "移除", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留在時間軸。" })}</div></article>`,
-    )
+
+  const latestBySubscription = new Map<string, Item | undefined>();
+  const presentationBySubscription = new Map<string, SourcePresentation>();
+  for (const subscription of subscriptions) {
+    const latest = app.services.subscriptions.listItemsPage(1, subscription.id).items[0];
+    latestBySubscription.set(subscription.id, latest);
+    presentationBySubscription.set(subscription.id, sourcePresentation(subscription, latest));
+  }
+  if (query) {
+    const needle = query.toLocaleLowerCase("zh-TW");
+    subscriptions = subscriptions.filter((subscription) => {
+      const presentation = presentationBySubscription.get(subscription.id);
+      return [
+        subscription.title ?? "",
+        subscription.sourceUrl,
+        subscription.adapter,
+        presentation?.family ?? "",
+        presentation?.role ?? "",
+        presentation?.name ?? "",
+        presentation?.topic ?? "",
+      ].some((value) => value.toLocaleLowerCase("zh-TW").includes(needle));
+    });
+  }
+
+  const groups = new Map<
+    string,
+    Array<{
+      subscription: Subscription;
+      latest: Item | undefined;
+      presentation: SourcePresentation;
+    }>
+  >();
+  for (const subscription of subscriptions) {
+    const presentation = presentationBySubscription.get(subscription.id) as SourcePresentation;
+    const group = groups.get(presentation.family) ?? [];
+    group.push({
+      subscription,
+      latest: latestBySubscription.get(subscription.id),
+      presentation,
+    });
+    groups.set(presentation.family, group);
+  }
+
+  const groupedRows = [...groups.entries()]
+    .map(([family, entries]) => {
+      const rows = entries
+        .map(({ subscription, latest, presentation }) => {
+          const topicHref = latest?.url ? safeExternalHref(latest.url) : null;
+          const topic = presentation.topic
+            ? topicHref
+              ? `<a href="${topicHref}" target="_blank" rel="noreferrer">${displayText(presentation.topic, 150)}</a>`
+              : displayText(presentation.topic, 150)
+            : "尚未取得主題";
+          return `<article class="record-row source-row"><div><div class="source-kicker"><span class="source-family">${displayText(presentation.family, 60)}</span><span>${displayText(presentation.role, 60)}</span><span class="source-format">${displayText(presentation.format, 30)}</span>${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}<span>${scheduleLabel(subscription)}</span>${subscription.lastError ? `<span>${displayText(subscription.consecutiveFailures)} 次失敗</span>` : ""}</div><h3><a href="/subscriptions/${encodeURIComponent(subscription.id)}">${displayText(presentation.name, 160)}</a></h3><p class="source-topic"><span class="source-topic-label">最近主題</span>${topic}</p><p class="source-url">${displayUrl(subscription.sourceUrl)}</p></div><div class="record-actions">${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停" : "恢復", { className: "button-secondary" })}${pollAction(subscription, subscription.id, session, "button-secondary", "立即輪詢")}${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/remove`, session, "移除", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留在時間軸。" })}</div></article>`;
+        })
+        .join("");
+      return `<section class="source-group" aria-labelledby="source-group-${escapeHtml(family)}"><div class="source-group-heading"><h3 id="source-group-${escapeHtml(family)}">${displayText(family, 60)}</h3><span>${formatNumber(entries.length)} 個來源</span></div><div class="record-list">${rows}</div></section>`;
+    })
     .join("");
+
   return `${heading(
     "來源／索引",
     "訂閱",
-    "搜尋、暫停、手動輪詢，或查看來源的完整健康紀錄。",
+    "依來源類型整理名稱與最近主題，再查看完整健康紀錄。",
     link("/subscriptions/new", "新增訂閱", "button"),
   )}
-  <form class="toolbar" method="get" action="/subscriptions"><div class="field"><label for="subscription-search">搜尋來源</label><input id="subscription-search" name="q" value="${escapeHtml(query)}" placeholder="標題、URL、來源類型"></div><div class="field field-small"><label for="subscription-status">篩選</label><select id="subscription-status" name="status"><option value="all"${filter === "all" ? " selected" : ""}>全部</option><option value="active"${filter === "active" ? " selected" : ""}>啟用中</option><option value="paused"${filter === "paused" ? " selected" : ""}>已暫停</option></select></div><button class="button" type="submit">套用</button></form>
-  <section class="panel" aria-labelledby="subscription-list-heading"><div class="section-title"><h2 id="subscription-list-heading">${formatNumber(subscriptions.length)} 個來源</h2><span class="panel-note">依建立時間排序</span></div>${subscriptions.length === 0 ? emptyState(query || filter !== "all" ? "沒有符合的來源" : "還沒有訂閱", query || filter !== "all" ? "換一個搜尋字詞或清除篩選。" : "從一個 URL 開始建立追蹤。", link("/subscriptions/new", "新增訂閱")) : `<div class="record-list">${rows}</div>`}</section>`;
+  <form class="toolbar" method="get" action="/subscriptions"><div class="field"><label for="subscription-search">搜尋來源</label><input id="subscription-search" name="q" value="${escapeHtml(query)}" placeholder="名稱、主題、URL、來源類型"></div><div class="field field-small"><label for="subscription-status">篩選</label><select id="subscription-status" name="status"><option value="all"${filter === "all" ? " selected" : ""}>全部</option><option value="active"${filter === "active" ? " selected" : ""}>啟用中</option><option value="paused"${filter === "paused" ? " selected" : ""}>已暫停</option></select></div><button class="button" type="submit">套用</button></form>
+  <section class="panel" aria-labelledby="subscription-list-heading"><div class="section-title"><h2 id="subscription-list-heading">${formatNumber(subscriptions.length)} 個來源</h2><span class="panel-note">依來源類型分組</span></div>${subscriptions.length === 0 ? emptyState(query || filter !== "all" ? "沒有符合的來源" : "還沒有訂閱", query || filter !== "all" ? "換一個搜尋字詞或清除篩選。" : "從一個 URL 開始建立追蹤。", link("/subscriptions/new", "新增訂閱")) : `<div class="source-groups">${groupedRows}</div>`}</section>`;
 }
 
 function newSubscriptionContent(
@@ -672,6 +794,7 @@ function subscriptionDetailContent(
     id,
     decodeCursor(url.searchParams.get("itemsCursor")),
   );
+  const presentation = sourcePresentation(subscription, itemPage.items[0]);
   const routes = app.services.routes.listPage(MAX_LIST_ITEMS, id).items;
   const destinations = app.services.destinations.listPage(MAX_LIST_ITEMS).items;
   const destinationMap = new Map(destinations.map((destination) => [destination.id, destination]));
@@ -698,8 +821,8 @@ function subscriptionDetailContent(
   const healthError = subscription.lastError
     ? `<div class="panel-error" role="alert"><strong>上次輪詢錯誤</strong><span>${displayText(subscription.lastError, 600)}</span></div>`
     : "";
-  return `${heading("來源／詳情", truncate(subscription.title || subscription.sourceUrl, 100), "查看這個來源的健康狀態、路由目的地與最新內容。", `${actionForm(`/subscriptions/${encodeURIComponent(id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停來源" : "恢復來源", { className: "button-secondary" })}${pollAction(subscription, id, session, "button", "立即輪詢")}`)}
-  <div class="detail-layout"><div class="stack"><section class="panel"><div class="section-title"><h2>來源健康度</h2>${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}</div>${healthError}<dl class="key-value"><dt>來源 URL</dt><dd>${displayUrl(subscription.sourceUrl)}</dd><dt>來源類型</dt><dd>${adapterLabel(subscription.adapter)}</dd><dt>運作方式</dt><dd>${scheduleLabel(subscription)}</dd><dt>上次輪詢</dt><dd>${formatDate(subscription.lastPolledAt)}</dd><dt>上次成功</dt><dd>${formatDate(subscription.lastSuccessAt)}</dd><dt>下次輪詢</dt><dd>${formatDate(subscription.nextPollAt)}</dd><dt>失敗次數</dt><dd>${formatNumber(subscription.consecutiveFailures)}</dd></dl></section><section class="panel"><div class="section-title"><h2>最近內容</h2><span class="panel-note">${formatNumber(itemPage.items.length)} 筆</span></div>${itemRows || emptyState("還沒有內容", "下一次成功的輪詢會將新內容放進時間軸。")}${nextItems ? `<div class="button-row" style="margin-top:1rem">${nextItems}</div>` : ""}</section></div><aside class="stack"><section class="panel"><div class="section-title"><h2>路由</h2><span class="panel-note">${formatNumber(routes.length)} 條</span></div>${routeRows || `<p class="panel-note">還沒有路由。請在下方新增投遞目的地。</p>`}${availableDestinations.length === 0 ? "" : `<form class="stack" style="margin-top:1rem" method="post" action="/routes/create" data-loading>${csrfField(session)}<input type="hidden" name="subscriptionId" value="${escapeHtml(subscription.id)}"><div class="field"><label for="route-destination">新增目的地</label><select id="route-destination" name="destinationId">${availableDestinations.map((destination) => `<option value="${escapeHtml(destination.id)}">${displayText(destination.destinationKey, 100)}</option>`).join("")}</select></div><button class="button" type="submit">新增路由</button></form>`}</section><section class="panel"><h2 class="panel-title">危險區域</h2><p class="panel-note">移除來源會保留已收集的內容，但不會再出現在啟用中的清單。</p>${actionForm(`/subscriptions/${encodeURIComponent(id)}/remove`, session, "移除訂閱", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留。" })}</section></aside></div>`;
+  return `${heading("來源／詳情", truncate(presentation.name, 100), "查看這個來源的健康狀態、路由目的地與最新內容。", `${actionForm(`/subscriptions/${encodeURIComponent(id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停來源" : "恢復來源", { className: "button-secondary" })}${pollAction(subscription, id, session, "button", "立即輪詢")}`)}
+  <div class="detail-layout"><div class="stack"><section class="panel"><div class="section-title"><h2>來源健康度</h2>${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}</div>${healthError}<dl class="key-value"><dt>顯示名稱</dt><dd>${displayText(presentation.name, 240)}</dd><dt>來源分類</dt><dd>${displayText(presentation.family, 80)} · ${displayText(presentation.role, 80)}</dd><dt>Feed 格式</dt><dd>${displayText(presentation.format, 40)}</dd><dt>最近主題</dt><dd>${displayText(presentation.topic || "尚未取得主題", 240)}</dd><dt>來源 URL</dt><dd>${displayUrl(subscription.sourceUrl)}</dd><dt>運作方式</dt><dd>${scheduleLabel(subscription)}</dd><dt>上次輪詢</dt><dd>${formatDate(subscription.lastPolledAt)}</dd><dt>上次成功</dt><dd>${formatDate(subscription.lastSuccessAt)}</dd><dt>下次輪詢</dt><dd>${formatDate(subscription.nextPollAt)}</dd><dt>失敗次數</dt><dd>${formatNumber(subscription.consecutiveFailures)}</dd></dl></section><section class="panel"><div class="section-title"><h2>最近內容</h2><span class="panel-note">${formatNumber(itemPage.items.length)} 筆</span></div>${itemRows || emptyState("還沒有內容", "下一次成功的輪詢會將新內容放進時間軸。")}${nextItems ? `<div class="button-row" style="margin-top:1rem">${nextItems}</div>` : ""}</section></div><aside class="stack"><section class="panel"><div class="section-title"><h2>路由</h2><span class="panel-note">${formatNumber(routes.length)} 條</span></div>${routeRows || `<p class="panel-note">還沒有路由。請在下方新增投遞目的地。</p>`}${availableDestinations.length === 0 ? "" : `<form class="stack" style="margin-top:1rem" method="post" action="/routes/create" data-loading>${csrfField(session)}<input type="hidden" name="subscriptionId" value="${escapeHtml(subscription.id)}"><div class="field"><label for="route-destination">新增目的地</label><select id="route-destination" name="destinationId">${availableDestinations.map((destination) => `<option value="${escapeHtml(destination.id)}">${displayText(destination.destinationKey, 100)}</option>`).join("")}</select></div><button class="button" type="submit">新增路由</button></form>`}</section><section class="panel"><h2 class="panel-title">危險區域</h2><p class="panel-note">移除來源會保留已收集的內容，但不會再出現在啟用中的清單。</p>${actionForm(`/subscriptions/${encodeURIComponent(id)}/remove`, session, "移除訂閱", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留。" })}</section></aside></div>`;
 }
 
 function destinationsContent(app: CurioApplication, session: UiSession): string {

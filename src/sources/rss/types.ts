@@ -18,6 +18,7 @@ export interface NormalizedFeedEntry {
 
 export interface NormalizedFeed {
   format: "rss" | "atom" | "rdf";
+  title: string | null;
   entries: NormalizedFeedEntry[];
   warnings: RssPollWarning[];
 }

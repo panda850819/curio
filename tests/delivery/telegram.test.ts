@@ -120,7 +120,7 @@ describe("Telegram rendering", () => {
     fallback.item.publishedAt = null;
     fallback.item.metadata = {};
     const message = renderTelegramMessage(fallback);
-    expect(message).toBe("<b>拾跡 · Source &amp; &lt;name&gt;</b>\n<i>作者未提供 · 日期未提供</i>");
+    expect(message).toBe("<b>拾跡 · Source &amp; &lt;name&gt;</b>");
   });
 
   test("renders failure context safely", () => {

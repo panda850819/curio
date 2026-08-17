@@ -11,6 +11,7 @@ describe("normalizeFeed", () => {
     const result = normalizeFeed(await fixture("rss.xml"), "https://example.com/feed.xml");
 
     expect(result.format).toBe("rss");
+    expect(result.title).toBe("Curio RSS");
     expect(result.entries).toHaveLength(3);
     expect(result.entries[0]?.item).toMatchObject({
       externalId: "rss-1",
@@ -36,6 +37,7 @@ describe("normalizeFeed", () => {
 
     expect(result).toMatchObject({
       format: "atom",
+      title: "Curio Atom",
       warnings: [],
       entries: [
         {
@@ -56,6 +58,7 @@ describe("normalizeFeed", () => {
 
     expect(result).toMatchObject({
       format: "rdf",
+      title: "Curio RDF",
       warnings: [],
       entries: [
         {

@@ -192,6 +192,9 @@ export class RssSourceAdapter {
 
       const normalized = normalizeFeed(decoder.decode(response.body), response.url);
       warnings.push(...normalized.warnings);
+      if (!subscription.title?.trim() && normalized.title !== null) {
+        this.subscriptions.setTitleIfEmpty(subscriptionId, normalized.title);
+      }
       const selected =
         backfillLimit === null
           ? normalized.entries

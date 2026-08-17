@@ -237,10 +237,20 @@ describe("Curio Web UI", () => {
     expect(detail.status).toBe(200);
     const detailHtml = await detail.text();
     expect(detailHtml).toContain("來源健康度");
+    expect(detailHtml).toContain("來源分類");
+    expect(detailHtml).toContain("Feed 格式");
     expect(detailHtml).toContain("路由");
     expect(detailHtml).toContain("First finding");
     expect(detailHtml).toContain("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
     expect(detailHtml).not.toContain("<script>alert('x')</script>");
+
+    const subscriptions = await context.ui(
+      new Request("http://curio.test/subscriptions", { headers: { cookie: session.cookie } }),
+    );
+    const subscriptionsHtml = await subscriptions.text();
+    expect(subscriptionsHtml).toContain("網站 Feed");
+    expect(subscriptionsHtml).toContain("最近主題");
+    expect(subscriptionsHtml).toContain("First finding");
 
     const destinations = await context.ui(
       new Request("http://curio.test/destinations", { headers: { cookie: session.cookie } }),

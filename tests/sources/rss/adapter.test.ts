@@ -120,6 +120,7 @@ describe("RssSourceAdapter", () => {
 
     const first = await adapter.poll(context.subscription.id);
     expect(first).toMatchObject({ status: "fetched", insertedItems: 20, duplicateItems: 0 });
+    expect(context.subscriptions.findById(context.subscription.id)?.title).toBe("Feed");
     const storedIds = context.items
       .listBySubscription(context.subscription.id, 100)
       .map((item) => item.externalId);
