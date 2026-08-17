@@ -1,0 +1,5 @@
+<svg class="curio-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" focusable="false">
+  <path d="M75 17.5a38 38 0 1 0 0 65" stroke="currentColor" stroke-width="15" stroke-linecap="butt"/>
+  <path d="M86 35 58 44l-12 10 12 10 28 9-8-19 8-19Z" fill="#F2633E"/>
+  <path d="M94 43H81M94 54H82M94 65H81" stroke="#F2633E" stroke-width="3" stroke-linecap="round"/>
+</svg>

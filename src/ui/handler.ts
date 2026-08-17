@@ -5,6 +5,7 @@ import { DELIVERY_STATUSES } from "../delivery/types.ts";
 import type { DeliveryStatus, Item, NewRoute, Route, Subscription } from "../domain/types.ts";
 import type { SubscriptionCandidate } from "../probe/types.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "../security/redaction.ts";
+import { curioFaviconHref, curioMarkSvg } from "./brand.ts";
 
 const SESSION_TTL_MS = 8 * 60 * 60_000;
 const MAX_FORM_BODY_BYTES = 64 * 1024;
@@ -355,7 +356,7 @@ function heading(eyebrow: string, title: string, lede: string, actions = ""): st
 }
 
 function emptyState(title: string, message: string, action = ""): string {
-  return `<div class="empty-state"><span class="empty-mark" aria-hidden="true">○</span><h2>${buttonLabel(title)}</h2><p>${buttonLabel(message)}</p>${action}</div>`;
+  return `<div class="empty-state"><span class="empty-mark" aria-hidden="true">${curioMarkSvg()}</span><h2>${buttonLabel(title)}</h2><p>${buttonLabel(message)}</p>${action}</div>`;
 }
 
 function renderShell(
@@ -386,7 +387,9 @@ function renderShell(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
+<meta name="theme-color" content="#11161b">
 <meta name="description" content="Curio 單一使用者資訊足跡">
+<link rel="icon" type="image/svg+xml" href="${curioFaviconHref()}">
 <title>${buttonLabel(title)} · Curio</title>
 <style>${STYLES}</style>
 </head>
@@ -394,7 +397,7 @@ function renderShell(
 <a class="skip-link" href="#main-content">跳到主要內容</a>
 <div class="app-shell">
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Curio 首頁"><span class="brand-mark" aria-hidden="true">✳</span><span><strong>Curio</strong><small>好奇足跡的田野筆記</small></span></a>
+    <a class="brand" href="/" aria-label="Curio 首頁"><span class="brand-mark">${curioMarkSvg()}</span><span><strong>curio</strong><small>拾起值得讀的訊號</small></span></a>
     <nav class="primary-nav" aria-label="主要導覽">${navHtml}</nav>
     <span class="environment-label">單一使用者／本機</span>
   </header>
@@ -418,16 +421,16 @@ for (const form of document.querySelectorAll('form[data-loading]')) {
 
 const STYLES = `
 :root {
-  --ink: oklch(24% 0.035 145);
-  --ink-soft: oklch(42% 0.035 145);
+  --ink: oklch(23% 0.03 250);
+  --ink-soft: oklch(43% 0.03 250);
   --paper: oklch(96% 0.018 88);
   --paper-deep: oklch(92% 0.025 88);
   --paper-lift: oklch(99% 0.012 88);
-  --moss: oklch(45% 0.09 145);
-  --moss-dark: oklch(33% 0.065 145);
-  --brass: oklch(67% 0.12 76);
-  --rust: oklch(52% 0.12 35);
-  --line: oklch(76% 0.035 88);
+  --moss: oklch(63% 0.18 42);
+  --moss-dark: oklch(28% 0.035 250);
+  --brass: oklch(76% 0.16 73);
+  --rust: oklch(57% 0.18 38);
+  --line: oklch(78% 0.025 88);
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 22px;
@@ -463,8 +466,9 @@ button:disabled { cursor: wait; opacity: 0.6; }
 .app-shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
 .topbar { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 1.15rem 0 1rem; display: flex; align-items: center; gap: 1.5rem; border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 0.7rem; color: var(--ink); text-decoration: none; min-width: 14rem; }
-.brand-mark { display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border: 1px solid var(--brass); border-radius: 50%; color: var(--rust); font-size: 1.25rem; }
-.brand strong { display: block; font-family: "Iowan Old Style", Baskerville, "Songti TC", serif; font-size: 1.3rem; line-height: 1.1; letter-spacing: -0.012em; }
+.brand-mark { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; color: var(--ink); flex: none; }
+.brand-mark .curio-mark { display: block; width: 100%; height: 100%; }
+.brand strong { display: block; font-family: Arial, Helvetica, sans-serif; font-size: 1.45rem; line-height: 1; font-weight: 700; letter-spacing: -0.07em; }
 .brand small { display: block; color: var(--ink-soft); font-size: 0.68rem; line-height: 1.2; letter-spacing: 0.04em; }
 .primary-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
 .primary-nav a { padding: 0.45rem 0.65rem; color: var(--ink-soft); text-decoration: none; border-bottom: 2px solid transparent; font-size: 0.92rem; }
@@ -544,7 +548,16 @@ fieldset legend { margin-bottom: 0.45rem; font-size: 0.82rem; font-weight: 800; 
 .panel-error { display: grid; gap: 0.2rem; padding: 1rem; color: var(--rust); border: 1px dashed var(--rust); background: color-mix(in oklch, var(--paper), var(--rust) 5%); }
 .panel-error span { color: var(--ink-soft); font-size: 0.86rem; }
 .empty-state { padding: 3rem 1rem; text-align: center; border: 1px dashed var(--line); background: var(--paper-lift); }
-.empty-mark { display: block; color: var(--brass); font-size: 2.5rem; line-height: 1; }
+.empty-mark { display: grid; place-items: center; width: 3.2rem; height: 3.2rem; margin: 0 auto; color: var(--ink); line-height: 1; }
+.empty-mark .curio-mark { display: block; width: 100%; height: 100%; }
+.pull-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2rem; align-items: center; margin-bottom: 2.4rem; padding: clamp(1.4rem, 3vw, 2.3rem); color: var(--paper-lift); background: var(--moss-dark); border-radius: var(--radius-lg); overflow: hidden; }
+.pull-hero-copy { max-width: 48rem; }
+.pull-hero-label { margin: 0 0 0.65rem; color: var(--brass); font: 700 0.72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.14em; }
+.pull-hero h2 { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: clamp(1.55rem, 4vw, 3rem); line-height: 1; letter-spacing: -0.06em; font-weight: 700; }
+.pull-hero p:last-child { max-width: 42rem; margin: 0.9rem 0 0; color: oklch(85% 0.02 250); font-size: 0.9rem; line-height: 1.7; }
+.pull-hero-mark { display: grid; place-items: center; width: clamp(7rem, 16vw, 11rem); height: clamp(7rem, 16vw, 11rem); color: var(--paper-lift); }
+.pull-hero-mark .curio-mark { display: block; width: 100%; height: 100%; }
+
 .empty-state h2 { margin: 0.65rem 0 0.2rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", serif; font-weight: 600; }
 .empty-state p { max-width: 42ch; margin: 0 auto 1rem; color: var(--ink-soft); }
 .detail-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.65fr); gap: 2rem; align-items: start; }
@@ -643,12 +656,13 @@ function dashboardContent(app: CurioApplication, _session: UiSession): string {
             ),
           )
           .join("")}</div>`;
+  const pullHero = `<section class="pull-hero" aria-label="Curio PULL 品牌主張"><div class="pull-hero-copy"><p class="pull-hero-label">PULL / READING COLLECTOR</p><h2>把值得讀的東西拉進來。</h2><p>Curio 把分散來源中的內容拉進你的閱讀空間，留下可以回看的足跡。</p></div><div class="pull-hero-mark">${curioMarkSvg()}</div></section>`;
   return `${heading(
-    "書桌／今天",
-    "你的好奇心索引",
+    "PULL／今天",
+    "把值得讀的東西拉進來",
     "在同一張桌面上查看來源健康、投遞狀態與最近拾起的內容。",
     link("/subscriptions/new", "新增訂閱", "button"),
-  )}
+  )}${pullHero}
   <dl class="overview-strip" aria-label="Curio 健康摘要">
     <div class="metric"><dt>啟用中的來源</dt><dd>${formatNumber(active)}</dd><small>共 ${formatNumber(subscriptions.length)} 個追蹤來源</small></div>
     <div class="metric"><dt>有錯誤的訂閱</dt><dd>${formatNumber(failedSubscriptions.length)}</dd><small>輪詢健康度</small></div>
