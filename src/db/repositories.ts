@@ -588,7 +588,12 @@ export class ItemRepository {
             existing.id,
           );
         if (update.changes !== 1) throw new Error("Failed to update Telegram item");
-        this.updateEventSubscription(write.subscriptionId, cursorJson, write.eventAt);
+        this.updateEventSubscription(
+          write.subscriptionId,
+          cursorJson,
+          write.eventAt,
+          write.nextPollAt,
+        );
         return { insertedItems: 0, updatedItems: 1 };
       }
 
@@ -654,7 +659,12 @@ export class ItemRepository {
           .run(itemId, itemId, write.eventAt, write.eventAt, write.subscriptionId);
       }
 
-      this.updateEventSubscription(write.subscriptionId, cursorJson, write.eventAt);
+      this.updateEventSubscription(
+        write.subscriptionId,
+        cursorJson,
+        write.eventAt,
+        write.nextPollAt,
+      );
       return { insertedItems: 1, updatedItems: 0 };
     });
     return persist();
@@ -664,15 +674,16 @@ export class ItemRepository {
     subscriptionId: string,
     cursorJson: string,
     eventAt: number,
+    nextPollAt: number | null | undefined,
   ): void {
     const update = this.database
-      .query<never, [string, number, number, number, string]>(
+      .query<never, [string, number, number, number | null, number, string]>(
         `UPDATE subscriptions
-         SET cursor_json = ?, last_polled_at = ?, last_success_at = ?, next_poll_at = NULL,
+         SET cursor_json = ?, last_polled_at = ?, last_success_at = ?, next_poll_at = ?,
              consecutive_failures = 0, last_error = NULL, last_failed_at = NULL, updated_at = ?
          WHERE id = ? AND enabled = 1 AND deleted_at IS NULL`,
       )
-      .run(cursorJson, eventAt, eventAt, eventAt, subscriptionId);
+      .run(cursorJson, eventAt, eventAt, nextPollAt ?? null, eventAt, subscriptionId);
     if (update.changes !== 1) throw new Error("Failed to update Telegram subscription");
   }
 

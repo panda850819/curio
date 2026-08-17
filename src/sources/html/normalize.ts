@@ -57,19 +57,19 @@ const BLOCK_TAGS = new Set([
   "ul",
 ]);
 
-interface HtmlTextNode {
+export interface HtmlTextNode {
   kind: "text";
   value: string;
 }
 
-interface HtmlElementNode {
+export interface HtmlElementNode {
   kind: "element";
   tag: string;
   rawAttributes: Record<string, string>;
   children: HtmlNode[];
 }
 
-type HtmlNode = HtmlTextNode | HtmlElementNode;
+export type HtmlNode = HtmlTextNode | HtmlElementNode;
 
 export class HtmlSelectorError extends Error {
   constructor(selector: string) {
@@ -110,7 +110,7 @@ function appendChild(parent: HtmlElementNode, node: HtmlNode): void {
   parent.children.push(node);
 }
 
-function parseHtml(html: string): HtmlElementNode {
+export function parseHtml(html: string): HtmlElementNode {
   const root: HtmlElementNode = { kind: "element", tag: "#root", rawAttributes: {}, children: [] };
   const stack: HtmlElementNode[] = [root];
   const tokens = /<!--[\s\S]*?-->|<![^>]*>|<\/?\s*[A-Za-z][^>]*>|[^<]+|</gu;
@@ -212,14 +212,14 @@ function serialize(node: HtmlNode, baseUrl: string): string {
   return `<${node.tag}${canonicalAttributes(node, baseUrl)}>${children}</${node.tag}>`;
 }
 
-function textContent(node: HtmlNode): string {
+export function textContent(node: HtmlNode): string {
   if (node.kind === "text") return node.value;
   if (isDropped(node)) return "";
   const separator = BLOCK_TAGS.has(node.tag) ? " " : "";
   return `${separator}${node.children.map(textContent).join("")}${separator}`;
 }
 
-function allElements(root: HtmlElementNode): HtmlElementNode[] {
+export function allElements(root: HtmlElementNode): HtmlElementNode[] {
   const result: HtmlElementNode[] = [];
   const visit = (node: HtmlNode) => {
     if (node.kind === "text") return;
@@ -266,7 +266,7 @@ function selectorParts(selector: string): Array<{ selector: string; combinator: 
   return parts;
 }
 
-function parentMap(root: HtmlElementNode): Map<HtmlElementNode, HtmlElementNode | null> {
+export function parentMap(root: HtmlElementNode): Map<HtmlElementNode, HtmlElementNode | null> {
   const parents = new Map<HtmlElementNode, HtmlElementNode | null>();
   const visit = (node: HtmlElementNode, parent: HtmlElementNode | null) => {
     parents.set(node, parent);

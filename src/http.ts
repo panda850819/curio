@@ -309,7 +309,8 @@ function parseCandidate(value: unknown): SubscriptionCandidate {
     adapter !== "x" &&
     adapter !== "html" &&
     adapter !== "youtube" &&
-    adapter !== "telegram"
+    adapter !== "telegram" &&
+    adapter !== "telegram_html"
   ) {
     throw new AppError("validation", "invalid_enum", "adapter is not supported");
   }

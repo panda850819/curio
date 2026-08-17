@@ -55,11 +55,11 @@ export async function probe(inputUrl: string, client: ProbeHttpClient): Promise<
       finalUrl: telegram.sourceUrl,
       candidates: [
         {
-          adapter: "telegram",
-          format: "telegram",
+          adapter: "telegram_html",
+          format: "html",
           sourceUrl: telegram.sourceUrl,
           sourceKey: telegram.sourceKey,
-          title: `Telegram: @${telegram.username}`,
+          title: `Telegram HTML: @${telegram.username}`,
           discoveredVia: "direct",
         },
       ],

@@ -21,4 +21,4 @@ Curio 使用 Bun-native server-rendered HTML，沒有新增 frontend framework�
 - `/destinations`：Telegram destination create、verify、enable/disable。
 - `/deliveries`：status filter、attempt detail、uncertain/permanent retry。
 
-Telegram channel subscription 顯示為事件驅動，不提供手動輪詢按鈕。Production 只需讓既有 reverse proxy 將 same-origin traffic 轉到 Curio；UI 不另開 port。瀏覽器 smoke 可使用 `deploy/ui-smoke.sh`。
+Telegram HTML subscription 顯示為定期輪詢；Bot API subscription 才是事件驅動。Production 只需讓既有 reverse proxy 將 same-origin traffic 轉到 Curio；UI 不另開 port。瀏覽器 smoke 可使用 `deploy/ui-smoke.sh`。

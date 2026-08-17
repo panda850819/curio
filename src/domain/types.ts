@@ -174,6 +174,7 @@ export interface EventWrite {
   item: CanonicalItem;
   cursor: JsonValue | null;
   eventAt: number;
+  nextPollAt?: number | null;
   notifyOnInsert?: boolean;
 }
 

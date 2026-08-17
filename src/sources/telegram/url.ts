@@ -16,12 +16,20 @@ export function telegramUsernameSourceKey(username: string): string {
   return `telegram:username:${username.replace(/^@/u, "").trim().toLowerCase()}`;
 }
 
+export function telegramHtmlSourceKey(username: string): string {
+  return `telegram-html:${username.replace(/^@/u, "").trim().toLowerCase()}`;
+}
+
 export function telegramChatSourceKey(chatId: string): string {
   return `telegram:chat:${chatId}`;
 }
 
 export function telegramSourceUrl(username: string): string {
   return `https://t.me/${username.replace(/^@/u, "").trim().toLowerCase()}`;
+}
+
+export function telegramHtmlSourceUrl(username: string): string {
+  return `https://t.me/s/${username.replace(/^@/u, "").trim().toLowerCase()}`;
 }
 
 export function parsePublicTelegramUrl(inputUrl: string): TelegramChannelReference | null {
@@ -43,8 +51,8 @@ export function parsePublicTelegramUrl(inputUrl: string): TelegramChannelReferen
   if (!username) return null;
   return {
     username,
-    sourceUrl: telegramSourceUrl(username),
-    sourceKey: telegramUsernameSourceKey(username),
+    sourceUrl: telegramHtmlSourceUrl(username),
+    sourceKey: telegramHtmlSourceKey(username),
   };
 }
 

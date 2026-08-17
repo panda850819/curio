@@ -2,7 +2,7 @@ export type FeedFormat = "rss" | "atom" | "rdf" | "x" | "html" | "youtube" | "te
 export type DiscoveryMethod = "direct" | "html-link";
 
 export interface SubscriptionCandidate {
-  adapter: "rss" | "x" | "html" | "youtube" | "telegram";
+  adapter: "rss" | "x" | "html" | "youtube" | "telegram" | "telegram_html";
   format: FeedFormat;
   sourceUrl: string;
   sourceKey: string;

@@ -54,7 +54,7 @@ Webhook 只在獨立指令中設定，正常啟動不會重設：
 TELEGRAM_WEBHOOK_URL=https://example.com/telegram/webhook bun run telegram:webhook
 ```
 
-Webhook 會接收 `message`、`callback_query`、`channel_post` 與 `edited_channel_post`。Bot 支援貼 URL、`/subscriptions`、`/status` 與 `/cancel`。部署驗證可執行 `deploy/telegram-webhook-smoke.sh`。
+Webhook 會接收 `message`、`callback_query`、`channel_post` 與 `edited_channel_post`。Bot 支援貼 URL、`/subscriptions`、`/status` 與 `/cancel`。部署驗證可執行 `deploy/telegram-webhook-smoke.sh`。公開 channel 預設使用 HTML scraper，不需要 Bot 加入來源頻道。
 
 ## 產品方向
 
@@ -71,7 +71,7 @@ Webhook 會接收 `message`、`callback_query`、`channel_post` 與 `edited_chan
 
 使用者提供 Telegram Bot Token 與目標 Channel，Curio 將訂閱取得的新內容去重、轉譯並推播至頻道。不同頻道可以呈現不同主題或篩選條件。
 
-Telegram public channel source 使用 Bot webhook 的 forward-only 模式。Bot 必須先加入來源 channel；不提供歷史 backfill。新貼文會建立 canonical item 並投遞，編輯事件會更新既有 item，不重複投遞。
+Telegram public channel source 預設輪詢 `https://t.me/s/<username>` 的公開 HTML，解析 message ID、文字、時間與貼文連結，再建立 canonical item。初次 poll 可設定 backfill 與 initial delivery；後續依 message ID 去重，也會更新頁面中仍可見的編輯內容。HTML 結構變更可能需要調整 scraper。Bot webhook adapter 仍可供需要 forward-only 事件的來源使用。
 
 ### 個人時間軸
 

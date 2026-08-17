@@ -15,6 +15,7 @@ import { HtmlSourceAdapter } from "../sources/html/adapter.ts";
 import { SourceRouter } from "../sources/router.ts";
 import { RssSourceAdapter } from "../sources/rss/index.ts";
 import { TelegramSourceAdapter } from "../sources/telegram/adapter.ts";
+import { TelegramHtmlSourceAdapter } from "../sources/telegram/html-adapter.ts";
 import { XSourceAdapter } from "../sources/x/adapter.ts";
 import { ProcessXbirdClient } from "../sources/x/client.ts";
 import type { XbirdTimelineClient } from "../sources/x/types.ts";
@@ -50,6 +51,7 @@ export interface CurioApplication {
   readonly routeRepository: RouteRepository;
   readonly telegramBotRepository: TelegramBotRepository;
   readonly telegramSource: TelegramSourceAdapter;
+  readonly telegramHtmlSource: TelegramHtmlSourceAdapter;
   readonly appliedMigrations: number;
   close(): void;
 }
@@ -81,6 +83,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
   const htmlAdapter = new HtmlSourceAdapter(probeClient, subscriptions, items, now);
   const youtubeAdapter = new YoutubeSourceAdapter(probeClient, subscriptions, items, now);
   const telegramSource = new TelegramSourceAdapter(subscriptions, items, now);
+  const telegramHtmlSource = new TelegramHtmlSourceAdapter(probeClient, subscriptions, items, now);
   const xAdapter = new XSourceAdapter(createXClient(options), subscriptions, items, now);
   const pollers: Record<string, SourcePoller> = {
     html: options.sourcePollers?.html ?? htmlAdapter,
@@ -88,6 +91,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
     x: options.sourcePollers?.x ?? xAdapter,
     youtube: options.sourcePollers?.youtube ?? youtubeAdapter,
     telegram: telegramSource,
+    telegram_html: telegramHtmlSource,
   };
   const router = new SourceRouter(subscriptions, pollers);
   const coordinator = new PollCoordinator(router);
@@ -122,6 +126,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
     routeRepository: routes,
     telegramBotRepository,
     telegramSource,
+    telegramHtmlSource,
     appliedMigrations,
     close() {
       if (closed || !ownsDatabase) return;

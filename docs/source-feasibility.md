@@ -8,6 +8,7 @@
 | --- | --- | ---: | ---: | --- |
 | GitHub REST API | **GO，首選** | Low | Low–medium | Public releases adapter；commits/issues 另做 endpoint spike |
 | GitHub Atom | **Conditional GO** | Medium | Medium | 只支援 capability probe 成功的 releases 與指定 branch commits |
+| Telegram public HTML | **GO，bounded scraper** | Medium | Medium | 輪詢 `t.me/s/<username>`，解析可見貼文 |
 | Telegram Bot API | **GO，forward-only** | Medium | Medium | Bot 加入 channel 後接收 `channel_post` / `edited_channel_post` |
 | Bilibili public space | **NO-GO** | High | High | 等官方、授權且穩定的 public read contract |
 | 小紅書 public explore | **NO-GO** | Very high | Very high | 只在 documented authorized API 或 approved export 出現後重評估 |
@@ -75,9 +76,11 @@ Atom 只做窄範圍 optional adapter：
 
 Synthetic contract fixture：[`docs/fixtures/source-feasibility/telegram-channel-update.json`](fixtures/source-feasibility/telegram-channel-update.json)。
 
-**Recommendation：GO，forward-only**
+**Recommendation：GO，bounded scraper**
 
-Curio 已實作 webhook event collector。Bot 必須先被加入 target channel，並透過 `telegram:webhook` 設定 webhook。public username source 使用 normalized channel username；item key 使用 `(chat.id, message_id)`；transport cursor 使用 `update_id`。`edited_channel_post` 會 upsert 原 item，不重複建立 delivery。刪除事件、過期未收 updates 與歷史 backfill 不承諾。Bot token 只放 runtime secret。
+Curio 已實作 public HTML scraper。它輪詢 `https://t.me/s/<username>`，使用 `data-post` 的 message ID 作 immutable item key，解析可見文字、時間與貼文 URL。初次 poll 受 backfill／initial delivery 限制，後續依 message ID 增量並更新仍可見的編輯內容。HTML 結構、可見窗口、刪除事件與歷史完整性不承諾。Bot token 不需要放入此 source path。
+
+Bot API 仍保留作 forward-only event collector：Bot 必須先被加入 target channel，並透過 `telegram:webhook` 設定 webhook；`edited_channel_post` 會 upsert 原 item，不重複建立 delivery。
 
 ### Bilibili
 

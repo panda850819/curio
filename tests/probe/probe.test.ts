@@ -119,14 +119,14 @@ describe("probe", () => {
 
     await expect(probe("https://t.me/journey_of_someone", client)).resolves.toEqual({
       inputUrl: "https://t.me/journey_of_someone",
-      finalUrl: "https://t.me/journey_of_someone",
+      finalUrl: "https://t.me/s/journey_of_someone",
       candidates: [
         {
-          adapter: "telegram",
-          format: "telegram",
-          sourceUrl: "https://t.me/journey_of_someone",
-          sourceKey: "telegram:username:journey_of_someone",
-          title: "Telegram: @journey_of_someone",
+          adapter: "telegram_html",
+          format: "html",
+          sourceUrl: "https://t.me/s/journey_of_someone",
+          sourceKey: "telegram-html:journey_of_someone",
+          title: "Telegram HTML: @journey_of_someone",
           discoveredVia: "direct",
         },
       ],

@@ -106,7 +106,12 @@ function publicationLine(payload: DeliveryPayload): string {
 }
 
 function telegramItemContent(payload: DeliveryPayload): string {
-  if (payload.subscription.adapter !== "telegram" || !payload.item) return "";
+  if (
+    (payload.subscription.adapter !== "telegram" &&
+      payload.subscription.adapter !== "telegram_html") ||
+    !payload.item
+  )
+    return "";
   const content = payload.item.contentText?.trim() || payload.item.summary?.trim() || "";
   return content ? escapedWithin(content, 2_800) : "";
 }

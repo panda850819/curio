@@ -234,7 +234,8 @@ function adapterLabel(value: string): string {
       x: "X",
       html: "HTML",
       youtube: "YouTube",
-      telegram: "Telegram",
+      telegram: "Telegram Bot",
+      telegram_html: "Telegram HTML",
     }[value] ?? value
   );
 }
@@ -819,7 +820,8 @@ function formCandidate(form: FormData): SubscriptionCandidate {
     adapter !== "x" &&
     adapter !== "html" &&
     adapter !== "youtube" &&
-    adapter !== "telegram"
+    adapter !== "telegram" &&
+    adapter !== "telegram_html"
   )
     throw new AppError("validation", "invalid_candidate", "來源 adapter 無效");
   if (
