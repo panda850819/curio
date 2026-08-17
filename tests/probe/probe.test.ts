@@ -114,6 +114,27 @@ describe("probe", () => {
     await expect(probe(url, client)).rejects.toMatchObject({ code: "invalid_feed" });
   });
 
+  test("recognizes a public Telegram channel without falling back to HTML", async () => {
+    const client = new FakeClient(new Map());
+
+    await expect(probe("https://t.me/journey_of_someone", client)).resolves.toEqual({
+      inputUrl: "https://t.me/journey_of_someone",
+      finalUrl: "https://t.me/journey_of_someone",
+      candidates: [
+        {
+          adapter: "telegram",
+          format: "telegram",
+          sourceUrl: "https://t.me/journey_of_someone",
+          sourceKey: "telegram:username:journey_of_someone",
+          title: "Telegram: @journey_of_someone",
+          discoveredVia: "direct",
+        },
+      ],
+      warnings: [],
+    });
+    expect(client.requested).toEqual([]);
+  });
+
   test("returns an HTML candidate for a page without feeds", async () => {
     const url = "https://example.com/";
     const client = new FakeClient(

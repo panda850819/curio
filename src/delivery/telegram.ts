@@ -105,6 +105,12 @@ function publicationLine(payload: DeliveryPayload): string {
   return `${author} · ${date}`;
 }
 
+function telegramItemContent(payload: DeliveryPayload): string {
+  if (payload.subscription.adapter !== "telegram" || !payload.item) return "";
+  const content = payload.item.contentText?.trim() || payload.item.summary?.trim() || "";
+  return content ? escapedWithin(content, 2_800) : "";
+}
+
 function itemTags(payload: DeliveryPayload): string {
   const metadata = payload.item?.metadata;
   const categories =
@@ -134,8 +140,11 @@ export function renderTelegramMessage(payload: DeliveryPayload): string {
       400,
     );
     const publication = escapedWithin(publicationLine(payload), 350);
+    const content = telegramItemContent(payload);
     const tags = escapedWithin(itemTags(payload), 250);
-    return [`<b>拾跡 · ${source}</b>`, `<i>${publication}</i>`, tags].filter(Boolean).join("\n");
+    return [`<b>拾跡 · ${source}</b>`, `<i>${publication}</i>`, content, tags]
+      .filter(Boolean)
+      .join("\n");
   }
 
   const event = payload.failureEvent;

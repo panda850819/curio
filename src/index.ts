@@ -28,6 +28,9 @@ if (config.telegram && webhookSecret) {
     app.telegramBotRepository,
     botApi,
     botSettings,
+    Date.now,
+    undefined,
+    app.telegramSource,
   );
   telegramWebhook = createTelegramWebhookHandler(webhookSecret, control);
 }

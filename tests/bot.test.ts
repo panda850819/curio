@@ -50,6 +50,20 @@ function updateMessage(updateId: number, text: string, userId = 123, chatId = -1
   };
 }
 
+function updateChannelPost(updateId: number, text: string, edited = false): unknown {
+  const key = edited ? "edited_channel_post" : "channel_post";
+  return {
+    update_id: updateId,
+    [key]: {
+      message_id: 42,
+      date: 1_000,
+      ...(edited ? { edit_date: 1_100 } : {}),
+      chat: { id: -10042, type: "channel", title: "Journey", username: "journey_of_someone" },
+      text,
+    },
+  };
+}
+
 function updateCallback(
   updateId: number,
   callbackData: string,
@@ -94,6 +108,8 @@ function harness() {
     api,
     settings,
     () => 1_000,
+    undefined,
+    app.telegramSource,
   );
   return { database, app, api, control, settings };
 }
@@ -171,6 +187,46 @@ describe("Telegram control plane", () => {
     expect(context.app.services.subscriptions.list()).toHaveLength(1);
     expect(context.app.services.routes.listPage(20).items).toHaveLength(1);
     expect(context.api.answers).toHaveLength(4);
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("ingests channel posts without requiring a user allowlist", async () => {
+    const context = harness();
+    const destination = context.app.services.destinations.create({
+      destinationKey: "telegram-reading",
+      kind: "telegram",
+      config: { chatId: "@pdzenglog" },
+    });
+    const subscription = context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "telegram",
+        format: "telegram",
+        sourceUrl: "https://t.me/journey_of_someone",
+        sourceKey: "telegram:username:journey_of_someone",
+        title: "Telegram: @journey_of_someone",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    }).subscription;
+    context.app.services.routes.create({
+      subscriptionId: subscription.id,
+      destinationId: destination.id,
+    });
+
+    await context.control.handleUpdate(updateChannelPost(30, "new post"));
+    expect(
+      context.app.services.subscriptions.listItemsPage(20, subscription.id).items,
+    ).toHaveLength(1);
+    expect(context.app.deliveryRepository.list()).toHaveLength(1);
+    await context.control.handleUpdate(updateChannelPost(30, "new post"));
+    expect(context.app.deliveryRepository.list()).toHaveLength(1);
+    await context.control.handleUpdate(updateChannelPost(31, "edited post", true));
+    expect(
+      context.app.services.subscriptions.listItemsPage(20, subscription.id).items[0]?.contentText,
+    ).toBe("edited post");
+    expect(context.app.deliveryRepository.list()).toHaveLength(1);
 
     context.app.close();
     context.database.close();

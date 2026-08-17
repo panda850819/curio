@@ -8,7 +8,7 @@
 | --- | --- | ---: | ---: | --- |
 | GitHub REST API | **GO，首選** | Low | Low–medium | Public releases adapter；commits/issues 另做 endpoint spike |
 | GitHub Atom | **Conditional GO** | Medium | Medium | 只支援 capability probe 成功的 releases 與指定 branch commits |
-| Telegram Bot API | **Conditional GO** | Medium | Medium | Forward-only `channel_post` / `edited_channel_post` adapter |
+| Telegram Bot API | **GO，forward-only** | Medium | Medium | Bot 加入 channel 後接收 `channel_post` / `edited_channel_post` |
 | Bilibili public space | **NO-GO** | High | High | 等官方、授權且穩定的 public read contract |
 | 小紅書 public explore | **NO-GO** | Very high | Very high | 只在 documented authorized API 或 approved export 出現後重評估 |
 
@@ -75,9 +75,9 @@ Atom 只做窄範圍 optional adapter：
 
 Synthetic contract fixture：[`docs/fixtures/source-feasibility/telegram-channel-update.json`](fixtures/source-feasibility/telegram-channel-update.json)。
 
-**Recommendation：Conditional GO**
+**Recommendation：GO，forward-only**
 
-這是 forward-only event collector。Bot 必須先被加入 target channel，並以 webhook 或 `getUpdates` 擇一。source key 使用 channel `chat.id`；item key 使用 `(chat.id, message_id)`；transport cursor 使用 `update_id`。`edited_channel_post` 要 upsert 原 item。刪除事件、過期未收 updates 與歷史 backfill 不承諾。Bot token 只放 runtime secret。
+Curio 已實作 webhook event collector。Bot 必須先被加入 target channel，並透過 `telegram:webhook` 設定 webhook。public username source 使用 normalized channel username；item key 使用 `(chat.id, message_id)`；transport cursor 使用 `update_id`。`edited_channel_post` 會 upsert 原 item，不重複建立 delivery。刪除事件、過期未收 updates 與歷史 backfill 不承諾。Bot token 只放 runtime secret。
 
 ### Bilibili
 
@@ -111,7 +111,7 @@ Synthetic response fixture：[`docs/fixtures/source-feasibility/bilibili-space-r
 
 1. [#31 Add GitHub REST releases source adapter](https://github.com/panda850819/curio/issues/31)：public repositories、release ID、ETag、Link pagination、`403/429` reset-aware backoff、optional isolated token；不含 private repos、寫入操作、HTML fallback。
 2. [#32 Add bounded GitHub Atom releases and branch commits adapter](https://github.com/panda850819/curio/issues/32)：只接受 capability probe 成功的 Atom paths；不含 issues、generic discovery 或 REST fallback。
-3. [#33 Add forward-only Telegram channel source adapter](https://github.com/panda850819/curio/issues/33)：`channel_post`、`edited_channel_post`、webhook/getUpdates 二選一、durable `update_id` dedup、明確無 history/backfill。
+3. Telegram channel source adapter 已完成：`channel_post`、`edited_channel_post`、webhook、durable `update_id` dedup，明確無 history/backfill。
 4. **Research GitHub commits/issues REST contracts**：只做 endpoint-specific evidence；通過 stable IDs、pagination、incremental semantics 與 rate-limit tests 後再拆 implementation issues。
 
 目前不建立 Bilibili 或小紅書 production adapter issue。

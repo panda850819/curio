@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import type {
   CanonicalItem,
+  EventWrite,
+  EventWriteResult,
   Item,
   JsonValue,
   NewSubscription,
@@ -526,6 +528,152 @@ export class ItemRepository {
             )
             .all(boundedLimit + 1);
     return { items: rows.slice(0, boundedLimit).map(mapItem), hasMore: rows.length > boundedLimit };
+  }
+
+  recordEvent(write: EventWrite): EventWriteResult {
+    const item = this.prepareItem(write.item);
+    const cursorJson = serializeJson(write.cursor);
+    const persist = this.database.transaction(() => {
+      const subscription = this.database
+        .query<SubscriptionRow, [string]>(
+          `SELECT * FROM subscriptions
+           WHERE id = ? AND enabled = 1 AND deleted_at IS NULL`,
+        )
+        .get(write.subscriptionId);
+      if (!subscription) {
+        throw new Error(`Subscription is missing or inactive: ${write.subscriptionId}`);
+      }
+
+      const existing = this.database
+        .query<{ id: string }, [string, string]>(
+          "SELECT id FROM items WHERE subscription_id = ? AND external_id = ?",
+        )
+        .get(write.subscriptionId, item.externalId);
+
+      if (existing) {
+        const update = this.database
+          .query<
+            never,
+            [
+              string | null,
+              string | null,
+              string | null,
+              string | null,
+              string | null,
+              string | null,
+              number | null,
+              number | null,
+              number,
+              string,
+              string,
+            ]
+          >(
+            `UPDATE items
+             SET url = ?, title = ?, summary = ?, content_text = ?, content_html = ?,
+                 author = ?, published_at = ?, source_updated_at = ?, updated_at = ?,
+                 metadata_json = ?
+             WHERE id = ?`,
+          )
+          .run(
+            item.url,
+            item.title,
+            item.summary,
+            item.contentText,
+            item.contentHtml,
+            item.author,
+            item.publishedAt,
+            item.sourceUpdatedAt,
+            write.eventAt,
+            item.metadataJson,
+            existing.id,
+          );
+        if (update.changes !== 1) throw new Error("Failed to update Telegram item");
+        this.updateEventSubscription(write.subscriptionId, cursorJson, write.eventAt);
+        return { insertedItems: 0, updatedItems: 1 };
+      }
+
+      const itemId = this.generateId();
+      this.database
+        .query<
+          never,
+          [
+            string,
+            string,
+            string,
+            string | null,
+            string | null,
+            string | null,
+            string | null,
+            string | null,
+            string | null,
+            number | null,
+            number | null,
+            number,
+            number,
+            number,
+            string,
+          ]
+        >(
+          `INSERT INTO items (
+             id, subscription_id, external_id, url, title, summary, content_text, content_html,
+             author, published_at, source_updated_at, discovered_at, created_at, updated_at,
+             metadata_json
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          itemId,
+          write.subscriptionId,
+          item.externalId,
+          item.url,
+          item.title,
+          item.summary,
+          item.contentText,
+          item.contentHtml,
+          item.author,
+          item.publishedAt,
+          item.sourceUpdatedAt,
+          write.eventAt,
+          write.eventAt,
+          write.eventAt,
+          item.metadataJson,
+        );
+
+      if (write.notifyOnInsert !== false) {
+        this.database
+          .query<never, [string, string, number, number, string]>(
+            `INSERT INTO deliveries (
+               id, destination_id, item_id, created_at, updated_at
+             )
+             SELECT ? || ':' || destinations.id, destinations.id, ?, ?, ?
+             FROM routes
+             JOIN destinations ON destinations.id = routes.destination_id
+             WHERE routes.subscription_id = ?
+               AND routes.enabled = 1 AND destinations.enabled = 1
+             ON CONFLICT (destination_id, item_id) DO NOTHING`,
+          )
+          .run(itemId, itemId, write.eventAt, write.eventAt, write.subscriptionId);
+      }
+
+      this.updateEventSubscription(write.subscriptionId, cursorJson, write.eventAt);
+      return { insertedItems: 1, updatedItems: 0 };
+    });
+    return persist();
+  }
+
+  private updateEventSubscription(
+    subscriptionId: string,
+    cursorJson: string,
+    eventAt: number,
+  ): void {
+    const update = this.database
+      .query<never, [string, number, number, number, string]>(
+        `UPDATE subscriptions
+         SET cursor_json = ?, last_polled_at = ?, last_success_at = ?, next_poll_at = NULL,
+             consecutive_failures = 0, last_error = NULL, last_failed_at = NULL, updated_at = ?
+         WHERE id = ? AND enabled = 1 AND deleted_at IS NULL`,
+      )
+      .run(cursorJson, eventAt, eventAt, eventAt, subscriptionId);
+    if (update.changes !== 1) throw new Error("Failed to update Telegram subscription");
   }
 
   recordPoll(write: PollWrite): PollWriteResult {

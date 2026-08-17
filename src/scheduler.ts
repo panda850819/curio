@@ -81,6 +81,8 @@ export interface SchedulerEvent {
   error?: string;
 }
 
+const EVENT_DRIVEN_SOURCE_ADAPTERS = new Set(["telegram"]);
+
 export class PollScheduler {
   private stopping = false;
 
@@ -102,8 +104,10 @@ export class PollScheduler {
   async tick(): Promise<number> {
     if (this.stopping) return 0;
     const due = this.subscriptions
-      .listDue(this.now(), this.concurrency)
-      .filter((subscription) => !this.coordinator.isPolling(subscription.id));
+      .listDue(this.now(), 100)
+      .filter((subscription) => !EVENT_DRIVEN_SOURCE_ADAPTERS.has(subscription.adapter))
+      .filter((subscription) => !this.coordinator.isPolling(subscription.id))
+      .slice(0, this.concurrency);
 
     await Promise.allSettled(
       due.map(async (subscription) => {

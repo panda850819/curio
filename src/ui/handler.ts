@@ -2,7 +2,7 @@ import type { CurioApplication } from "../app/create-app.ts";
 import { AppError, toAppError } from "../app/errors.ts";
 import { decodeCursor } from "../app/pagination.ts";
 import { DELIVERY_STATUSES } from "../delivery/types.ts";
-import type { DeliveryStatus, Item, NewRoute, Route } from "../domain/types.ts";
+import type { DeliveryStatus, Item, NewRoute, Route, Subscription } from "../domain/types.ts";
 import type { SubscriptionCandidate } from "../probe/types.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "../security/redaction.ts";
 
@@ -227,8 +227,15 @@ function discoveryLabel(value: string): string {
 
 function adapterLabel(value: string): string {
   return (
-    { rss: "RSS", atom: "Atom", rdf: "RDF", x: "X", html: "HTML", youtube: "YouTube" }[value] ??
-    value
+    {
+      rss: "RSS",
+      atom: "Atom",
+      rdf: "RDF",
+      x: "X",
+      html: "HTML",
+      youtube: "YouTube",
+      telegram: "Telegram",
+    }[value] ?? value
   );
 }
 
@@ -252,6 +259,26 @@ function actionForm(
     : "";
   const kind = options.kind === "danger" ? " button-danger" : "";
   return `<form class="inline-form" method="post" action="${escapeHtml(action)}" data-loading${confirm}>${csrfField(csrf)}<button class="button ${escapeHtml(options.className ?? "")}${kind}" type="submit">${buttonLabel(label)}</button></form>`;
+}
+
+function pollAction(
+  subscription: Pick<Subscription, "adapter">,
+  id: string,
+  session: UiSession,
+  className: string,
+  label: string,
+): string {
+  return subscription.adapter === "telegram"
+    ? ""
+    : actionForm(`/subscriptions/${encodeURIComponent(id)}/poll`, session, label, { className });
+}
+
+function scheduleLabel(
+  subscription: Pick<Subscription, "adapter" | "pollIntervalMinutes">,
+): string {
+  return subscription.adapter === "telegram"
+    ? "事件驅動"
+    : `每 ${formatNumber(subscription.pollIntervalMinutes)} 分鐘`;
 }
 
 function heading(eyebrow: string, title: string, lede: string, actions = ""): string {
@@ -587,7 +614,7 @@ function subscriptionsContent(app: CurioApplication, session: UiSession, url: UR
   const rows = subscriptions
     .map(
       (subscription) =>
-        `<article class="record-row"><div><h3><a href="/subscriptions/${encodeURIComponent(subscription.id)}">${displayText(subscription.title || subscription.sourceUrl, 160)}</a></h3><div class="record-meta">${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}<span>${adapterLabel(subscription.adapter)}</span><span>每 ${formatNumber(subscription.pollIntervalMinutes)} 分鐘</span>${subscription.lastError ? `<span>${displayText(subscription.consecutiveFailures)} 次失敗</span>` : ""}</div><p>${displayUrl(subscription.sourceUrl)}</p></div><div class="record-actions">${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停" : "恢復", { className: "button-secondary" })}${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/poll`, session, "立即輪詢", { className: "button-secondary" })}${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/remove`, session, "移除", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留在時間軸。" })}</div></article>`,
+        `<article class="record-row"><div><h3><a href="/subscriptions/${encodeURIComponent(subscription.id)}">${displayText(subscription.title || subscription.sourceUrl, 160)}</a></h3><div class="record-meta">${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}<span>${adapterLabel(subscription.adapter)}</span><span>${scheduleLabel(subscription)}</span>${subscription.lastError ? `<span>${displayText(subscription.consecutiveFailures)} 次失敗</span>` : ""}</div><p>${displayUrl(subscription.sourceUrl)}</p></div><div class="record-actions">${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停" : "恢復", { className: "button-secondary" })}${pollAction(subscription, subscription.id, session, "button-secondary", "立即輪詢")}${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/remove`, session, "移除", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留在時間軸。" })}</div></article>`,
     )
     .join("");
   return `${heading(
@@ -670,8 +697,8 @@ function subscriptionDetailContent(
   const healthError = subscription.lastError
     ? `<div class="panel-error" role="alert"><strong>上次輪詢錯誤</strong><span>${displayText(subscription.lastError, 600)}</span></div>`
     : "";
-  return `${heading("來源／詳情", truncate(subscription.title || subscription.sourceUrl, 100), "查看這個來源的健康狀態、路由目的地與最新內容。", `${actionForm(`/subscriptions/${encodeURIComponent(id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停來源" : "恢復來源", { className: "button-secondary" })}${actionForm(`/subscriptions/${encodeURIComponent(id)}/poll`, session, "立即輪詢", { className: "button" })}`)}
-  <div class="detail-layout"><div class="stack"><section class="panel"><div class="section-title"><h2>來源健康度</h2>${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}</div>${healthError}<dl class="key-value"><dt>來源 URL</dt><dd>${displayUrl(subscription.sourceUrl)}</dd><dt>來源類型</dt><dd>${adapterLabel(subscription.adapter)}</dd><dt>輪詢間隔</dt><dd>${formatNumber(subscription.pollIntervalMinutes)} 分鐘</dd><dt>上次輪詢</dt><dd>${formatDate(subscription.lastPolledAt)}</dd><dt>上次成功</dt><dd>${formatDate(subscription.lastSuccessAt)}</dd><dt>下次輪詢</dt><dd>${formatDate(subscription.nextPollAt)}</dd><dt>失敗次數</dt><dd>${formatNumber(subscription.consecutiveFailures)}</dd></dl></section><section class="panel"><div class="section-title"><h2>最近內容</h2><span class="panel-note">${formatNumber(itemPage.items.length)} 筆</span></div>${itemRows || emptyState("還沒有內容", "下一次成功的輪詢會將新內容放進時間軸。")}${nextItems ? `<div class="button-row" style="margin-top:1rem">${nextItems}</div>` : ""}</section></div><aside class="stack"><section class="panel"><div class="section-title"><h2>路由</h2><span class="panel-note">${formatNumber(routes.length)} 條</span></div>${routeRows || `<p class="panel-note">還沒有路由。請在下方新增投遞目的地。</p>`}${availableDestinations.length === 0 ? "" : `<form class="stack" style="margin-top:1rem" method="post" action="/routes/create" data-loading>${csrfField(session)}<input type="hidden" name="subscriptionId" value="${escapeHtml(subscription.id)}"><div class="field"><label for="route-destination">新增目的地</label><select id="route-destination" name="destinationId">${availableDestinations.map((destination) => `<option value="${escapeHtml(destination.id)}">${displayText(destination.destinationKey, 100)}</option>`).join("")}</select></div><button class="button" type="submit">新增路由</button></form>`}</section><section class="panel"><h2 class="panel-title">危險區域</h2><p class="panel-note">移除來源會保留已收集的內容，但不會再出現在啟用中的清單。</p>${actionForm(`/subscriptions/${encodeURIComponent(id)}/remove`, session, "移除訂閱", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留。" })}</section></aside></div>`;
+  return `${heading("來源／詳情", truncate(subscription.title || subscription.sourceUrl, 100), "查看這個來源的健康狀態、路由目的地與最新內容。", `${actionForm(`/subscriptions/${encodeURIComponent(id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停來源" : "恢復來源", { className: "button-secondary" })}${pollAction(subscription, id, session, "button", "立即輪詢")}`)}
+  <div class="detail-layout"><div class="stack"><section class="panel"><div class="section-title"><h2>來源健康度</h2>${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}</div>${healthError}<dl class="key-value"><dt>來源 URL</dt><dd>${displayUrl(subscription.sourceUrl)}</dd><dt>來源類型</dt><dd>${adapterLabel(subscription.adapter)}</dd><dt>運作方式</dt><dd>${scheduleLabel(subscription)}</dd><dt>上次輪詢</dt><dd>${formatDate(subscription.lastPolledAt)}</dd><dt>上次成功</dt><dd>${formatDate(subscription.lastSuccessAt)}</dd><dt>下次輪詢</dt><dd>${formatDate(subscription.nextPollAt)}</dd><dt>失敗次數</dt><dd>${formatNumber(subscription.consecutiveFailures)}</dd></dl></section><section class="panel"><div class="section-title"><h2>最近內容</h2><span class="panel-note">${formatNumber(itemPage.items.length)} 筆</span></div>${itemRows || emptyState("還沒有內容", "下一次成功的輪詢會將新內容放進時間軸。")}${nextItems ? `<div class="button-row" style="margin-top:1rem">${nextItems}</div>` : ""}</section></div><aside class="stack"><section class="panel"><div class="section-title"><h2>路由</h2><span class="panel-note">${formatNumber(routes.length)} 條</span></div>${routeRows || `<p class="panel-note">還沒有路由。請在下方新增投遞目的地。</p>`}${availableDestinations.length === 0 ? "" : `<form class="stack" style="margin-top:1rem" method="post" action="/routes/create" data-loading>${csrfField(session)}<input type="hidden" name="subscriptionId" value="${escapeHtml(subscription.id)}"><div class="field"><label for="route-destination">新增目的地</label><select id="route-destination" name="destinationId">${availableDestinations.map((destination) => `<option value="${escapeHtml(destination.id)}">${displayText(destination.destinationKey, 100)}</option>`).join("")}</select></div><button class="button" type="submit">新增路由</button></form>`}</section><section class="panel"><h2 class="panel-title">危險區域</h2><p class="panel-note">移除來源會保留已收集的內容，但不會再出現在啟用中的清單。</p>${actionForm(`/subscriptions/${encodeURIComponent(id)}/remove`, session, "移除訂閱", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留。" })}</section></aside></div>`;
 }
 
 function destinationsContent(app: CurioApplication, session: UiSession): string {
@@ -787,7 +814,13 @@ function formCandidate(form: FormData): SubscriptionCandidate {
   const adapter = typeof candidate.adapter === "string" ? candidate.adapter : "";
   const format = typeof candidate.format === "string" ? candidate.format : "";
   const discoveredVia = typeof candidate.discoveredVia === "string" ? candidate.discoveredVia : "";
-  if (adapter !== "rss" && adapter !== "x" && adapter !== "html" && adapter !== "youtube")
+  if (
+    adapter !== "rss" &&
+    adapter !== "x" &&
+    adapter !== "html" &&
+    adapter !== "youtube" &&
+    adapter !== "telegram"
+  )
     throw new AppError("validation", "invalid_candidate", "來源 adapter 無效");
   if (
     format !== "rss" &&
@@ -795,7 +828,8 @@ function formCandidate(form: FormData): SubscriptionCandidate {
     format !== "rdf" &&
     format !== "x" &&
     format !== "html" &&
-    format !== "youtube"
+    format !== "youtube" &&
+    format !== "telegram"
   )
     throw new AppError("validation", "invalid_candidate", "來源格式無效");
   if (discoveredVia !== "direct" && discoveredVia !== "html-link")

@@ -304,12 +304,18 @@ function parseCandidate(value: unknown): SubscriptionCandidate {
   const adapter = requiredString(body, "adapter");
   const format = requiredString(body, "format");
   const discoveredVia = requiredString(body, "discoveredVia");
-  if (adapter !== "rss" && adapter !== "x" && adapter !== "html" && adapter !== "youtube") {
+  if (
+    adapter !== "rss" &&
+    adapter !== "x" &&
+    adapter !== "html" &&
+    adapter !== "youtube" &&
+    adapter !== "telegram"
+  ) {
     throw new AppError("validation", "invalid_enum", "adapter is not supported");
   }
   if (
-    !(["rss", "atom", "rdf", "x", "html", "youtube"] as const).includes(
-      format as "rss" | "atom" | "rdf" | "x" | "html" | "youtube",
+    !(["rss", "atom", "rdf", "x", "html", "youtube", "telegram"] as const).includes(
+      format as "rss" | "atom" | "rdf" | "x" | "html" | "youtube" | "telegram",
     )
   ) {
     throw new AppError("validation", "invalid_enum", "format is not supported");

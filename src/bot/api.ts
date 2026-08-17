@@ -111,7 +111,7 @@ export class FetchTelegramBotApi implements TelegramBotApi {
     return this.request("setWebhook", {
       url,
       secret_token: secretToken,
-      allowed_updates: ["message", "callback_query"],
+      allowed_updates: ["message", "callback_query", "channel_post", "edited_channel_post"],
       max_connections: 1,
     });
   }

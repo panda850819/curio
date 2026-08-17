@@ -54,7 +54,7 @@ Webhook 只在獨立指令中設定，正常啟動不會重設：
 TELEGRAM_WEBHOOK_URL=https://example.com/telegram/webhook bun run telegram:webhook
 ```
 
-Bot 支援貼 URL、`/subscriptions`、`/status` 與 `/cancel`。部署驗證可執行 `deploy/telegram-webhook-smoke.sh`。
+Webhook 會接收 `message`、`callback_query`、`channel_post` 與 `edited_channel_post`。Bot 支援貼 URL、`/subscriptions`、`/status` 與 `/cancel`。部署驗證可執行 `deploy/telegram-webhook-smoke.sh`。
 
 ## 產品方向
 
@@ -70,6 +70,8 @@ Bot 支援貼 URL、`/subscriptions`、`/status` 與 `/cancel`。部署驗證可
 ### Telegram 閱讀器
 
 使用者提供 Telegram Bot Token 與目標 Channel，Curio 將訂閱取得的新內容去重、轉譯並推播至頻道。不同頻道可以呈現不同主題或篩選條件。
+
+Telegram public channel source 使用 Bot webhook 的 forward-only 模式。Bot 必須先加入來源 channel；不提供歷史 backfill。新貼文會建立 canonical item 並投遞，編輯事件會更新既有 item，不重複投遞。
 
 ### 個人時間軸
 
@@ -128,7 +130,7 @@ Persistent Volume
 
 - RSS / Atom；
 - X profiles via pinned `xbird`；
-- 後續加入 GitHub、YouTube 與 Telegram public channel。
+- GitHub、YouTube 與 Telegram public channel。
 
 ### Destination Adapter
 

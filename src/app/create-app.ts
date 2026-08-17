@@ -14,6 +14,7 @@ import { PollCoordinator, PollScheduler, type SourcePoller } from "../scheduler.
 import { HtmlSourceAdapter } from "../sources/html/adapter.ts";
 import { SourceRouter } from "../sources/router.ts";
 import { RssSourceAdapter } from "../sources/rss/index.ts";
+import { TelegramSourceAdapter } from "../sources/telegram/adapter.ts";
 import { XSourceAdapter } from "../sources/x/adapter.ts";
 import { ProcessXbirdClient } from "../sources/x/client.ts";
 import type { XbirdTimelineClient } from "../sources/x/types.ts";
@@ -48,6 +49,7 @@ export interface CurioApplication {
   readonly destinationRepository: DestinationRepository;
   readonly routeRepository: RouteRepository;
   readonly telegramBotRepository: TelegramBotRepository;
+  readonly telegramSource: TelegramSourceAdapter;
   readonly appliedMigrations: number;
   close(): void;
 }
@@ -78,12 +80,14 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
   const rssAdapter = new RssSourceAdapter(probeClient, subscriptions, items, now);
   const htmlAdapter = new HtmlSourceAdapter(probeClient, subscriptions, items, now);
   const youtubeAdapter = new YoutubeSourceAdapter(probeClient, subscriptions, items, now);
+  const telegramSource = new TelegramSourceAdapter(subscriptions, items, now);
   const xAdapter = new XSourceAdapter(createXClient(options), subscriptions, items, now);
   const pollers: Record<string, SourcePoller> = {
     html: options.sourcePollers?.html ?? htmlAdapter,
     rss: options.sourcePollers?.rss ?? rssAdapter,
     x: options.sourcePollers?.x ?? xAdapter,
     youtube: options.sourcePollers?.youtube ?? youtubeAdapter,
+    telegram: telegramSource,
   };
   const router = new SourceRouter(subscriptions, pollers);
   const coordinator = new PollCoordinator(router);
@@ -117,6 +121,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
     destinationRepository: destinations,
     routeRepository: routes,
     telegramBotRepository,
+    telegramSource,
     appliedMigrations,
     close() {
       if (closed || !ownsDatabase) return;

@@ -1,4 +1,5 @@
 import { extractPageTitle, normalizeUrl } from "../sources/html/normalize.ts";
+import { parsePublicTelegramUrl } from "../sources/telegram/url.ts";
 import { ProbeError } from "./errors.ts";
 import {
   detectFeedFormat,
@@ -47,6 +48,25 @@ async function mapConcurrent<T, R>(
 }
 
 export async function probe(inputUrl: string, client: ProbeHttpClient): Promise<ProbeResult> {
+  const telegram = parsePublicTelegramUrl(inputUrl);
+  if (telegram) {
+    return {
+      inputUrl,
+      finalUrl: telegram.sourceUrl,
+      candidates: [
+        {
+          adapter: "telegram",
+          format: "telegram",
+          sourceUrl: telegram.sourceUrl,
+          sourceKey: telegram.sourceKey,
+          title: `Telegram: @${telegram.username}`,
+          discoveredVia: "direct",
+        },
+      ],
+      warnings: [],
+    };
+  }
+
   const initial = await client.get(inputUrl, responseLimit);
   requireSuccess(initial.status, initial.url);
   const contentType = initial.headers.get("content-type");

@@ -9,10 +9,10 @@ import {
 } from "../src/scheduler.ts";
 import type { RssPollResult } from "../src/sources/rss/types.ts";
 
-function subscription(id: string): Subscription {
+function subscription(id: string, adapter = "rss"): Subscription {
   return {
     id,
-    adapter: "rss",
+    adapter,
     sourceKey: id,
     sourceUrl: `https://example.com/${id}`,
     title: null,
@@ -112,6 +112,23 @@ describe("PollScheduler", () => {
     expect(events).toMatchObject([
       { level: "error", message: "subscription_poll_failed", subscriptionId: "subscription-1" },
     ]);
+  });
+
+  test("does not schedule event-driven Telegram subscriptions", async () => {
+    const due = [subscription("telegram-1", "telegram"), subscription("rss-1")];
+    const polled: string[] = [];
+    const scheduler = new PollScheduler(
+      fakeRepository(due),
+      new PollCoordinator({
+        poll: async (id) => {
+          polled.push(id);
+          return successfulResult();
+        },
+      }),
+    );
+
+    expect(await scheduler.tick()).toBe(1);
+    expect(polled).toEqual(["rss-1"]);
   });
 
   test("stop waits for in-flight work and prevents another tick", async () => {

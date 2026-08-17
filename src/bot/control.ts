@@ -4,6 +4,7 @@ import type { ApplicationServices } from "../app/types.ts";
 import type { Route } from "../domain/types.ts";
 import type { SubscriptionCandidate } from "../probe/types.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "../security/redaction.ts";
+import type { TelegramChannelPost, TelegramChannelPostHandler } from "../sources/telegram/types.ts";
 import type { InlineKeyboardButton, InlineKeyboardMarkup, TelegramBotApi } from "./api.ts";
 import type { TelegramBotSettings } from "./config.ts";
 import type { TelegramBotRepository } from "./repository.ts";
@@ -51,6 +52,7 @@ interface TelegramCallback {
 type ParsedUpdate =
   | { updateId: number; kind: "message"; message: TelegramMessage }
   | { updateId: number; kind: "callback"; callback: TelegramCallback }
+  | { updateId: number; kind: "channel_post"; post: TelegramChannelPost }
   | { updateId: number; kind: "unsupported" };
 
 function objectValue(value: unknown): Record<string, unknown> | null {
@@ -109,6 +111,49 @@ function parseUpdate(value: unknown): ParsedUpdate | null {
       callback: { id: callbackId, chatId, user: { id: userId }, data },
     };
   }
+  const editedChannelPost = objectValue(update.edited_channel_post);
+  const channelPost = objectValue(update.channel_post);
+  const rawChannelPost = editedChannelPost ?? channelPost;
+  if (rawChannelPost) {
+    const chat = objectValue(rawChannelPost.chat);
+    const chatId = idValue(chat?.id, true);
+    const messageId = idValue(rawChannelPost.message_id, false);
+    const date = idValue(rawChannelPost.date, false);
+    const editDate =
+      rawChannelPost.edit_date === undefined ? null : idValue(rawChannelPost.edit_date, false);
+    if (
+      !chatId ||
+      chat?.type !== "channel" ||
+      !messageId ||
+      !date ||
+      (editDate === null && rawChannelPost.edit_date !== undefined)
+    ) {
+      return { updateId: numericUpdateId, kind: "unsupported" };
+    }
+    const text =
+      typeof rawChannelPost.text === "string"
+        ? rawChannelPost.text
+        : typeof rawChannelPost.caption === "string"
+          ? rawChannelPost.caption
+          : null;
+    return {
+      updateId: numericUpdateId,
+      kind: "channel_post",
+      post: {
+        updateId: numericUpdateId,
+        messageId: Number(messageId),
+        chat: {
+          id: chatId,
+          type: "channel",
+          title: typeof chat.title === "string" ? chat.title : null,
+          username: typeof chat.username === "string" ? chat.username.replace(/^@/u, "") : null,
+        },
+        date: Number(date),
+        editDate: editDate === null ? null : Number(editDate),
+        text,
+      },
+    };
+  }
   return { updateId: numericUpdateId, kind: "unsupported" };
 }
 
@@ -158,6 +203,7 @@ export class TelegramControlService {
     private readonly settings: TelegramBotSettings,
     private readonly now: () => number = Date.now,
     private readonly conversationTtlMs = CONVERSATION_TTL_MS,
+    private readonly channelPostHandler?: TelegramChannelPostHandler,
   ) {}
 
   async handleUpdate(value: unknown): Promise<void> {
@@ -171,6 +217,11 @@ export class TelegramControlService {
 
     try {
       if (update.kind === "unsupported") {
+        this.repository.completeUpdate(update.updateId, this.now());
+        return;
+      }
+      if (update.kind === "channel_post") {
+        await this.channelPostHandler?.handleChannelPost(update.post);
         this.repository.completeUpdate(update.updateId, this.now());
         return;
       }
@@ -189,7 +240,7 @@ export class TelegramControlService {
       else await this.handleCallback(update.callback);
       this.repository.completeUpdate(update.updateId, this.now());
     } catch (error) {
-      if (update.kind === "unsupported") {
+      if (update.kind === "unsupported" || update.kind === "channel_post") {
         this.repository.releaseUpdate(update.updateId);
         throw error;
       }

@@ -59,7 +59,7 @@ Request：
 { "url": "https://example.com/feed.xml" }
 ```
 
-Server 會套用既有 SSRF-safe probe policy。Candidate adapter 包含 `rss`、`html`、`x` 與 `youtube`；YouTube channel／handle／video URL 會先解析成 stable channel ID。
+Server 會套用既有 SSRF-safe probe policy。Candidate adapter 包含 `rss`、`html`、`x`、`youtube` 與 `telegram`；YouTube channel／handle／video URL 會先解析成 stable channel ID。`https://t.me/<public-username>` 會產生 Telegram forward-only candidate，不讀取歷史內容。
 
 ## Subscriptions
 
@@ -91,7 +91,7 @@ Request：
 }
 ```
 
-Server 會重新 probe 並驗證 candidate identity，不能只相信 client 提供的 `sourceUrl`、`sourceKey` 或 adapter。建立成功回 `201`：
+Server 會重新 probe 並驗證 candidate identity，不能只相信 client 提供的 `sourceUrl`、`sourceKey` 或 adapter。Telegram subscription 是 webhook event-driven，不會被 scheduler 輪詢；Bot 必須已加入來源 channel。建立成功回 `201`：
 
 ```json
 { "data": { "subscription": {}, "disposition": "created" } }

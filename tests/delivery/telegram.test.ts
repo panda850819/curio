@@ -101,6 +101,14 @@ describe("Telegram rendering", () => {
     expect(message).not.toContain("RSS");
   });
 
+  test("includes Telegram post content in the destination message", () => {
+    const telegram = payload();
+    telegram.subscription.adapter = "telegram";
+    const message = renderTelegramMessage(telegram);
+    expect(message).toContain("First paragraph");
+    expect(message).toContain("x".repeat(100));
+  });
+
   test("uses deterministic fallbacks without broken markup", () => {
     const fallback = payload();
     if (!fallback.item) throw new Error("Expected item payload");

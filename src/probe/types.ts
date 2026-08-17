@@ -1,8 +1,8 @@
-export type FeedFormat = "rss" | "atom" | "rdf" | "x" | "html" | "youtube";
+export type FeedFormat = "rss" | "atom" | "rdf" | "x" | "html" | "youtube" | "telegram";
 export type DiscoveryMethod = "direct" | "html-link";
 
 export interface SubscriptionCandidate {
-  adapter: "rss" | "x" | "html" | "youtube";
+  adapter: "rss" | "x" | "html" | "youtube" | "telegram";
   format: FeedFormat;
   sourceUrl: string;
   sourceKey: string;

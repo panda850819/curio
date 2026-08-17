@@ -168,3 +168,16 @@ export interface PollWriteResult {
   insertedItems: number;
   duplicateItems: number;
 }
+
+export interface EventWrite {
+  subscriptionId: string;
+  item: CanonicalItem;
+  cursor: JsonValue | null;
+  eventAt: number;
+  notifyOnInsert?: boolean;
+}
+
+export interface EventWriteResult {
+  insertedItems: number;
+  updatedItems: number;
+}
