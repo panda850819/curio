@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { AGENT_MANIFEST } from "../../src/agent/manifest.ts";
 import { CurioAgentApiClient } from "../../src/agent/client.ts";
+import { AGENT_MANIFEST } from "../../src/agent/manifest.ts";
 import { createCurioMcpServer } from "../../src/agent/mcp.ts";
 import { createCurioAgentTools } from "../../src/agent/tools.ts";
 
