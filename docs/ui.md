@@ -4,7 +4,7 @@ Curio 使用 Bun-native server-rendered HTML，沒有新增 frontend framework�
 
 ## Visual direction
 
-`Field journal / brass-and-ink`：舊紙色背景、深墨綠文字、黃銅提示與鐵鏽色錯誤。頁面採 cardless sections、清楚的資料列與可收合的 delivery attempts，桌面與手機共用同一組資訊階層。
+`PULL / graphite-and-signal`：舊紙色背景、石墨文字、signal orange 與暖黃焦點。品牌 mark 使用開放的 capture aperture 與被拉入的 signal fragment；頁面維持 cardless sections、清楚的資料列與可收合的 delivery attempts，桌面與手機共用同一組資訊階層。
 
 ## Security
 

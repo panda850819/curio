@@ -2,7 +2,7 @@
 
 > 拾起偶然的興趣，留下好奇的軌跡。
 >
-> Collect curiosities. Trace your path.
+> Pull what matters into your reading space.
 
 Curio 是一個個人使用、以訂閱為核心的資訊收集與轉發服務。
 
