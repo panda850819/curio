@@ -1,3 +1,4 @@
+import { AGENT_MANIFEST } from "./agent/manifest.ts";
 import { AppError, statusForAppError, toAppError } from "./app/errors.ts";
 import { decodeCursor } from "./app/pagination.ts";
 import type { ApplicationServices } from "./app/types.ts";
@@ -359,6 +360,11 @@ async function handleApiRequest(
   const resource = segments[2];
   const id = segments[3] === undefined ? undefined : decodeSegment(segments[3]);
   const action = segments[4];
+
+  if (resource === "agent" && segments.length === 4 && segments[3] === "manifest") {
+    if (request.method !== "GET") methodNotAllowed();
+    return successResponse(AGENT_MANIFEST);
+  }
 
   if (resource === "probes" && segments.length === 3) {
     if (request.method !== "POST") methodNotAllowed();

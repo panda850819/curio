@@ -80,6 +80,38 @@ describe("HTTP handler", () => {
     expect(body).not.toHaveProperty("databasePath");
   });
 
+  test("exposes an agent manifest without runtime secrets", async () => {
+    const context = apiHarness();
+    const response = await context.request(new Request("http://curio.test/api/v1/agent/manifest"));
+    const body = (await response.json()) as {
+      data: {
+        manifestVersion: string;
+        service: string;
+        operations: Array<{ id: string; path: string }>;
+        safety: { secretsNeverReturned: string[]; confirmationRequiredFor: string[] };
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({ manifestVersion: "1", service: "curio" });
+    expect(body.data.operations.map((operation) => operation.id)).toContain("probes.create");
+    expect(body.data.operations.map((operation) => operation.id)).toContain("routes.remove");
+    expect(body.data.operations.find((operation) => operation.id === "probes.create")?.path).toBe(
+      "/api/v1/probes",
+    );
+    expect(body.data.safety.confirmationRequiredFor).toContain("subscriptions.remove");
+    expect(body.data.safety.secretsNeverReturned).toContain("TELEGRAM_BOT_TOKEN");
+    expect(JSON.stringify(body)).not.toContain("secret-bot-token");
+
+    const method = await context.request(
+      new Request("http://curio.test/api/v1/agent/manifest", { method: "POST" }),
+    );
+    expect(method.status).toBe(405);
+
+    context.app.close();
+    context.database.close();
+  });
+
   test("returns JSON 404 for unknown paths", async () => {
     const response = handleRequest(new Request("http://curio.test/missing"));
 
