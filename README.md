@@ -40,6 +40,22 @@ Telegram，未來可增加 RSS、Web 或其他出口
 
 RSS 是可選的輸入與輸出格式，不是內部必經格式。內部以資料庫中的 Canonical Item 作為共同語言。
 
+## Web 管理介面
+
+Curio 內建 same-origin、server-rendered 管理介面，入口是 `/`。可完成 subscription、destination、route 與 delivery failure 的日常操作；mutation 受 `HttpOnly; Secure; SameSite=Lax` session 與 CSRF token 保護。
+
+## Telegram 控制面
+
+設定 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET` 與 `TELEGRAM_ALLOWED_USER_IDS` 後，Curio 會提供 `POST /telegram/webhook`。可選的 `TELEGRAM_ALLOWED_CHAT_IDS` 會再限制 chat。
+
+Webhook 只在獨立指令中設定，正常啟動不會重設：
+
+```bash
+TELEGRAM_WEBHOOK_URL=https://example.com/telegram/webhook bun run telegram:webhook
+```
+
+Bot 支援貼 URL、`/subscriptions`、`/status` 與 `/cancel`。部署驗證可執行 `deploy/telegram-webhook-smoke.sh`。
+
 ## 產品方向
 
 ### 建立訂閱
@@ -248,7 +264,19 @@ bun run curio poll <subscription-id-or-source-url> --json
 bun run curio remove <subscription-id-or-source-url> --json
 ```
 
-Probe 只允許 public HTTP(S)，會阻擋 credentials、localhost、private/link-local/reserved IP，以及 redirect 至內網。它驗證 RSS、Atom 或 RDF 的 Content-Type 與 XML root，但不在此階段解析 entries 或建立 subscription。
+Probe 只允許 public HTTP(S)，會阻擋 credentials、localhost、private/link-local/reserved IP，以及 redirect 至內網。它驗證 RSS、Atom 或 RDF 的 Content-Type 與 XML root；HTML page 會額外提供 `html` candidate，但不在此階段建立 subscription。
+
+### HTML Source Adapter
+
+`HtmlSourceAdapter` 追蹤沒有 feed 的公開 HTML page。它移除 `script`、`style`、`noscript` 與 volatile attributes，正規化 whitespace、selector 範圍與 URLs，再以 canonical content 的 SHA-256 作 cursor hash。第一次 poll 只建立 baseline，不建立 delivery；只有設定 metadata `notifyOnFirstPoll: true` 才會通知第一次內容。
+
+可選 metadata：
+
+```json
+{"selector": "main article", "notifyOnFirstPoll": false}
+```
+
+Selector 沒有匹配或抽取內容超過 256 KiB 會記錄 durable poll failure。HTML adapter 不使用 headless browser，也不會把未清理 HTML 直接送到 Telegram。
 
 ### RSS Source Adapter
 
@@ -269,6 +297,10 @@ Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到�
 X profile URL 會建立 `x` subscription。Adapter 透過固定 argv 執行 pin 至 commit `5098a67898acf81927422c4be760705c29a0e2d1` 的 `xbird user-tweets`，預設收錄原始 posts 與 quote posts，排除 replies 與 reposts。Tweet ID 是 immutable external ID；首次最多保存 20 則並通知最新 1 則。
 
 `xbird` child process 強制 `XBIRD_DISABLE_LIVE_WRITES=1`，且只取得 allowlisted environment，不會繼承 Telegram token。`X_AUTH_TOKEN` 與 `X_CT0` 是具有完整帳號能力的 session cookies，應使用 dedicated read account，並只存於 runtime secret。
+
+### YouTube Source Adapter
+
+YouTube channel、handle、video URL 與 direct channel Atom feed 都會解析成 channel ID，subscription source key 使用 channel ID，因此 handle 改名不會建立 duplicate subscription。日常 poll 只讀官方 Atom feed；video ID 作為 immutable external ID，沿用 ETag／Last-Modified、backfill 與 initial delivery policy。
 
 ### Telegram delivery
 

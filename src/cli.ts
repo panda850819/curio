@@ -1,24 +1,13 @@
 #!/usr/bin/env bun
-import { resolve } from "node:path";
-import { openDatabase } from "./db/database.ts";
-import { migrate } from "./db/migrations.ts";
-import {
-  DuplicateSubscriptionError,
-  ItemRepository,
-  SubscriptionRepository,
-} from "./db/repositories.ts";
-import { DeliveryRepository } from "./delivery/repository.ts";
+import { createApp } from "./app/create-app.ts";
+import { AppError } from "./app/errors.ts";
+import type { ApplicationServices } from "./app/types.ts";
 import { DELIVERY_STATUSES } from "./delivery/types.ts";
 import type { Delivery, DeliveryStatus, Subscription } from "./domain/types.ts";
 import type { ProbeResult, SubscriptionCandidate } from "./probe/index.ts";
-import { ProbeError, probe, SafeHttpClient, SystemResolver } from "./probe/index.ts";
-import { PollCoordinator, type SourcePollResult } from "./scheduler.ts";
+import { ProbeError } from "./probe/index.ts";
+import type { SourcePollResult } from "./scheduler.ts";
 import { redactSensitiveUrls } from "./security/redaction.ts";
-import { SourceRouter } from "./sources/router.ts";
-import { RssSourceAdapter } from "./sources/rss/index.ts";
-import { XSourceAdapter } from "./sources/x/adapter.ts";
-import { ProcessXbirdClient } from "./sources/x/client.ts";
-import { xProbeResult } from "./sources/x/probe.ts";
 
 interface CliIo {
   stdout(message: string): void;
@@ -36,6 +25,25 @@ export interface CliDependencies {
   listDeliveries(status?: DeliveryStatus): Delivery[];
   retryDelivery(id: string): Delivery;
   io: CliIo;
+}
+
+export function createCliDependencies(services: ApplicationServices, io: CliIo): CliDependencies {
+  return {
+    probeUrl: (url) => services.probe.probe(url),
+    follow: (candidate, intervalMinutes) =>
+      services.subscriptions.follow({ candidate, intervalMinutes }).subscription,
+    list: () => services.subscriptions.list(),
+    resolveSubscription: (target) => services.subscriptions.resolve(target),
+    setEnabled: (id, enabled) =>
+      enabled ? services.subscriptions.resume(id) : services.subscriptions.pause(id),
+    remove: (id) => {
+      services.subscriptions.remove(id);
+    },
+    poll: (id) => services.subscriptions.poll(id),
+    listDeliveries: (status) => services.deliveries.list(status),
+    retryDelivery: (id) => services.deliveries.retry(id),
+    io,
+  };
 }
 
 export class CliError extends Error {
@@ -267,12 +275,14 @@ export async function runCli(args: string[], dependencies: CliDependencies): Pro
     const cliError =
       error instanceof CliError
         ? error
-        : error instanceof ProbeError
-          ? new CliError(error.code, error.message)
-          : new CliError(
-              "unexpected_error",
-              error instanceof Error ? error.message : String(error),
-            );
+        : error instanceof AppError
+          ? new CliError(error.code, error.message, error.details)
+          : error instanceof ProbeError
+            ? new CliError(error.code, error.message)
+            : new CliError(
+                "unexpected_error",
+                error instanceof Error ? error.message : String(error),
+              );
     if (args.includes("--json") && cliError.details !== undefined) {
       dependencies.io.stdout(
         JSON.stringify({
@@ -289,72 +299,19 @@ export async function runCli(args: string[], dependencies: CliDependencies): Pro
 }
 
 if (import.meta.main) {
-  const database = openDatabase(process.env.DATABASE_PATH ?? "./data/curio.db");
+  const xAuthToken = process.env.X_AUTH_TOKEN?.trim() ?? "";
+  const xCt0 = process.env.X_CT0?.trim() ?? "";
+  const app = createApp({
+    databasePath: process.env.DATABASE_PATH ?? "./data/curio.db",
+    migrationsPath: process.env.MIGRATIONS_PATH,
+    x: xAuthToken && xCt0 ? { authToken: xAuthToken, ct0: xCt0 } : null,
+  });
   try {
-    migrate(database, process.env.MIGRATIONS_PATH || resolve(import.meta.dir, "../migrations"));
-    const client = new SafeHttpClient(new SystemResolver());
-    const subscriptions = new SubscriptionRepository(database);
-    const items = new ItemRepository(database);
-    const rssAdapter = new RssSourceAdapter(client, subscriptions, items);
-    const xClient =
-      process.env.X_AUTH_TOKEN && process.env.X_CT0
-        ? new ProcessXbirdClient(process.env.X_AUTH_TOKEN, process.env.X_CT0)
-        : { userTweets: () => Promise.reject(new Error("X credentials are not configured")) };
-    const xAdapter = new XSourceAdapter(xClient, subscriptions, items);
-    const coordinator = new PollCoordinator(
-      new SourceRouter(subscriptions, { rss: rssAdapter, x: xAdapter }),
+    process.exitCode = await runCli(
+      process.argv.slice(2),
+      createCliDependencies(app.services, { stdout: console.log, stderr: console.error }),
     );
-    const deliveries = new DeliveryRepository(database);
-    const resolveSubscription = (target: string): Subscription => {
-      const byId = subscriptions.findById(target);
-      if (byId) return byId;
-      const byUrl = subscriptions.findBySourceUrl(target);
-      if (byUrl.length === 0)
-        throw new CliError("subscription_not_found", "Subscription not found");
-      if (byUrl.length > 1) {
-        throw new CliError("subscription_ambiguous", "Source URL matches multiple subscriptions");
-      }
-      return byUrl[0] as Subscription;
-    };
-    const exitCode = await runCli(process.argv.slice(2), {
-      probeUrl: (url) =>
-        Promise.resolve(xProbeResult(url)).then((result) => result ?? probe(url, client)),
-      follow: (candidate, intervalMinutes) => {
-        try {
-          return subscriptions.create({
-            adapter: candidate.adapter,
-            sourceKey: candidate.sourceKey,
-            sourceUrl: candidate.sourceUrl,
-            title: candidate.title,
-            nextPollAt: Date.now(),
-            pollIntervalMinutes: intervalMinutes,
-          });
-        } catch (error) {
-          if (!(error instanceof DuplicateSubscriptionError)) throw error;
-          const existing = subscriptions.findBySource(candidate.adapter, candidate.sourceKey);
-          if (!existing) throw error;
-          return existing;
-        }
-      },
-      list: () => subscriptions.list(),
-      resolveSubscription,
-      setEnabled: (id, enabled) => {
-        const updated = subscriptions.setEnabled(id, enabled);
-        if (!updated) throw new CliError("subscription_not_found", "Subscription not found");
-        return updated;
-      },
-      remove: (id) => {
-        if (!subscriptions.softDelete(id)) {
-          throw new CliError("subscription_not_found", "Subscription not found");
-        }
-      },
-      poll: (id) => coordinator.poll(id),
-      listDeliveries: (status) => deliveries.list(status),
-      retryDelivery: (id) => deliveries.retry(id),
-      io: { stdout: console.log, stderr: console.error },
-    });
-    process.exitCode = exitCode;
   } finally {
-    database.close();
+    app.close();
   }
 }

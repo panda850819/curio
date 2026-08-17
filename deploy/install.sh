@@ -65,6 +65,8 @@ install -m 0700 "$SCRIPT_DIR/status.sh" "$ROOT/operations/status.sh"
 install -m 0700 "$SCRIPT_DIR/item-outbox-smoke.sh" "$ROOT/operations/item-outbox-smoke.sh"
 install -m 0600 "$SCRIPT_DIR/item-outbox-smoke.ts" "$ROOT/operations/item-outbox-smoke.ts"
 install -m 0700 "$SCRIPT_DIR/telegram-failure-smoke.sh" "$ROOT/operations/telegram-failure-smoke.sh"
+install -m 0700 "$SCRIPT_DIR/telegram-webhook-smoke.sh" "$ROOT/operations/telegram-webhook-smoke.sh"
+install -m 0700 "$SCRIPT_DIR/ui-smoke.sh" "$ROOT/operations/ui-smoke.sh"
 if grep -q '^CURIO_IMAGE=' "$ROOT/.env"; then
   sed -i "s|^CURIO_IMAGE=.*$|CURIO_IMAGE=$IMAGE|" "$ROOT/.env"
 else

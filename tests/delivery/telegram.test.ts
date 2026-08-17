@@ -127,6 +127,34 @@ describe("Telegram rendering", () => {
 });
 
 describe("TelegramDestinationAdapter", () => {
+  test("verifies a Telegram chat without exposing the bot token", async () => {
+    const calls: Array<{ token: string; body: Readonly<Record<string, unknown>> }> = [];
+    const transport: TelegramTransport = {
+      send: async () => ({ status: 200, body: "{}" }),
+      getChat: async (token, body) => {
+        calls.push({ token, body });
+        return {
+          status: 200,
+          body: JSON.stringify({
+            ok: true,
+            result: { id: -1001, type: "channel", title: "Example", username: "example" },
+          }),
+        };
+      },
+    };
+    const result = await new TelegramDestinationAdapter("secret-token", transport).verifyChat(
+      "@example",
+    );
+    expect(result).toEqual({
+      id: -1001,
+      type: "channel",
+      title: "Example",
+      username: "example",
+    });
+    expect(calls).toEqual([{ token: "secret-token", body: { chat_id: "@example" } }]);
+    expect(JSON.stringify(result)).not.toContain("secret-token");
+  });
+
   test("accepts a valid Telegram acknowledgement", async () => {
     const transport = new FakeTransport({
       status: 200,

@@ -1,0 +1,18 @@
+{
+  "code": 0,
+  "message": "synthetic success fixture",
+  "data": {
+    "list": {
+      "vlist": [
+        {
+          "aid": 123456,
+          "bvid": "BV1synthetic",
+          "title": "Example public video",
+          "created": 1786838400,
+          "length": "01:23"
+        }
+      ],
+      "page": { "pn": 1, "ps": 20, "count": 1 }
+    }
+  }
+}

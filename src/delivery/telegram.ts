@@ -8,6 +8,7 @@ export interface TelegramHttpResponse {
 
 export interface TelegramTransport {
   send(token: string, body: Readonly<Record<string, unknown>>): Promise<TelegramHttpResponse>;
+  getChat?(token: string, body: Readonly<Record<string, unknown>>): Promise<TelegramHttpResponse>;
 }
 
 export class TelegramTimeoutError extends Error {
@@ -31,6 +32,28 @@ export class FetchTelegramTransport implements TelegramTransport {
     const timer = setTimeout(() => controller.abort(), this.timeoutMilliseconds);
     try {
       const response = await fetch(`${this.apiBaseUrl}/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      return { status: response.status, body: await response.text() };
+    } catch (error) {
+      if (controller.signal.aborted) throw new TelegramTimeoutError();
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async getChat(
+    token: string,
+    body: Readonly<Record<string, unknown>>,
+  ): Promise<TelegramHttpResponse> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMilliseconds);
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/bot${token}/getChat`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -135,6 +158,15 @@ export function renderTelegramMessage(payload: DeliveryPayload): string {
     .slice(0, 4_096);
 }
 
+export interface TelegramChatMetadata {
+  id: number | string;
+  type: string;
+  title?: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+}
+
 export type TelegramSendResult =
   | { outcome: "delivered"; messageId: number; httpStatus: number }
   | { outcome: "retry"; error: string; httpStatus: number | null; retryAfterSeconds?: number }
@@ -168,6 +200,43 @@ export class TelegramDestinationAdapter {
 
   private safeError(value: unknown): string {
     return sanitizeErrorMessage(value).split(this.token).join("[bot-token-redacted]");
+  }
+
+  async verifyChat(chatId: string): Promise<TelegramChatMetadata> {
+    const getChat = this.transport.getChat;
+    if (!getChat) throw new Error("Telegram transport does not support chat verification");
+    try {
+      const response = await getChat.call(this.transport, this.token, { chat_id: chatId });
+      const parsed = parseJson(response.body);
+      if (response.status < 200 || response.status >= 300 || parsed?.ok !== true) {
+        throw new Error(responseError(parsed, `Telegram HTTP ${response.status}`));
+      }
+      const result = parsed.result;
+      if (result === null || typeof result !== "object" || Array.isArray(result)) {
+        throw new Error("Telegram returned malformed chat metadata");
+      }
+      const value = result as Record<string, unknown>;
+      const id = value.id;
+      const type = value.type;
+      if (
+        !(
+          (typeof id === "number" && Number.isSafeInteger(id)) ||
+          (typeof id === "string" && id.length > 0)
+        ) ||
+        typeof type !== "string" ||
+        !type
+      ) {
+        throw new Error("Telegram returned malformed chat metadata");
+      }
+      const metadata: TelegramChatMetadata = { id, type };
+      if (typeof value.title === "string") metadata.title = value.title;
+      if (typeof value.username === "string") metadata.username = value.username;
+      if (typeof value.first_name === "string") metadata.firstName = value.first_name;
+      if (typeof value.last_name === "string") metadata.lastName = value.last_name;
+      return metadata;
+    } catch (error) {
+      throw new Error(this.safeError(error));
+    }
   }
 
   async send(payload: DeliveryPayload): Promise<TelegramSendResult> {

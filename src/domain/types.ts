@@ -32,6 +32,23 @@ export interface NewSubscription {
   pollIntervalMinutes?: number;
 }
 
+export interface SubscriptionUpdate {
+  title?: string | null;
+  enabled?: boolean;
+  pollIntervalMinutes?: number;
+  metadata?: JsonValue;
+}
+
+export interface PageCursor {
+  timestamp: number;
+  id: string;
+}
+
+export interface RepositoryPage<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
 export interface PollFailureEvent {
   id: string;
   subscriptionId: string;
@@ -58,6 +75,35 @@ export interface Destination {
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface NewDestination {
+  destinationKey: string;
+  kind: "telegram";
+  config: JsonValue;
+  enabled?: boolean;
+}
+
+export interface DestinationUpdate {
+  config?: JsonValue;
+  enabled?: boolean;
+}
+
+export interface Route {
+  id: string;
+  subscriptionId: string;
+  destinationId: string;
+  enabled: boolean;
+  config: JsonValue;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface NewRoute {
+  subscriptionId: string;
+  destinationId: string;
+  enabled?: boolean;
+  config?: JsonValue;
 }
 
 export interface Delivery {

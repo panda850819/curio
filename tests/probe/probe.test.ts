@@ -83,16 +83,23 @@ describe("probe", () => {
 
     const result = await probe(page, client);
 
-    expect(result.candidates).toEqual([
-      {
-        adapter: "rss",
-        format: "rss",
-        sourceUrl: valid,
-        sourceKey: valid,
-        title: "Example feed",
-        discoveredVia: "html-link",
-      },
-    ]);
+    expect(result.candidates).toContainEqual({
+      adapter: "rss",
+      format: "rss",
+      sourceUrl: valid,
+      sourceKey: valid,
+      title: "Example feed",
+      discoveredVia: "html-link",
+    });
+    expect(result.candidates).toContainEqual({
+      adapter: "html",
+      format: "html",
+      sourceUrl: page,
+      sourceKey: page,
+      title: null,
+      discoveredVia: "direct",
+    });
+    expect(result.candidates).toHaveLength(2);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatchObject({ code: "candidate_failed", url: invalid });
     expect(client.requested.filter((url) => url === valid)).toHaveLength(1);
@@ -107,12 +114,24 @@ describe("probe", () => {
     await expect(probe(url, client)).rejects.toMatchObject({ code: "invalid_feed" });
   });
 
-  test("returns a successful empty result for HTML without feeds", async () => {
+  test("returns an HTML candidate for a page without feeds", async () => {
     const url = "https://example.com/";
     const client = new FakeClient(
       new Map([[url, response(url, "text/html", "<html><body>Nothing here</body></html>")]]),
     );
 
-    await expect(probe(url, client)).resolves.toMatchObject({ candidates: [], warnings: [] });
+    await expect(probe(url, client)).resolves.toMatchObject({
+      candidates: [
+        {
+          adapter: "html",
+          format: "html",
+          sourceUrl: url,
+          sourceKey: url,
+          title: null,
+          discoveredVia: "direct",
+        },
+      ],
+      warnings: [],
+    });
   });
 });

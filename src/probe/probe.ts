@@ -1,3 +1,4 @@
+import { extractPageTitle, normalizeUrl } from "../sources/html/normalize.ts";
 import { ProbeError } from "./errors.ts";
 import {
   detectFeedFormat,
@@ -134,5 +135,21 @@ export async function probe(inputUrl: string, client: ProbeHttpClient): Promise<
     }
   }
 
+  const htmlCandidate: SubscriptionCandidate = {
+    adapter: "html",
+    format: "html",
+    sourceUrl: initial.url,
+    sourceKey: normalizeUrl(initial.url),
+    title: extractPageTitle(decoder.decode(initial.body)),
+    discoveredVia: "direct",
+  };
+  if (
+    !candidates.some(
+      (candidate) =>
+        candidate.adapter === "html" && candidate.sourceKey === htmlCandidate.sourceKey,
+    )
+  ) {
+    candidates.push(htmlCandidate);
+  }
   return { inputUrl, finalUrl: initial.url, candidates, warnings };
 }

@@ -1,12 +1,16 @@
 import type { Database } from "bun:sqlite";
+import { DestinationRepository, RouteRepository } from "../db/routing-repositories.ts";
 import type {
   Delivery,
   DeliveryAttempt,
   DeliveryStatus,
   Destination,
+  DestinationUpdate,
   Item,
-  JsonValue,
+  NewDestination,
+  PageCursor,
   PollFailureEvent,
+  RepositoryPage,
   Subscription,
 } from "../domain/types.ts";
 import { sanitizeErrorMessage } from "../security/redaction.ts";
@@ -93,17 +97,6 @@ interface SubscriptionRow {
   deleted_at: number | null;
 }
 
-function mapDestination(row: DestinationRow): Destination {
-  return {
-    id: row.id,
-    destinationKey: row.destination_key,
-    kind: row.kind,
-    config: JSON.parse(row.config_json) as JsonValue,
-    enabled: row.enabled === 1,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
 function mapDelivery(row: DeliveryRow): Delivery {
   return {
     id: row.id,
@@ -135,61 +128,79 @@ function mapAttempt(row: AttemptRow): DeliveryAttempt {
 }
 
 export class DeliveryRepository {
+  private readonly destinations: DestinationRepository;
+  private readonly routes: RouteRepository;
+
   constructor(
     private readonly database: Database,
     private readonly generateId: () => string = () => Bun.randomUUIDv7(),
     private readonly now: () => number = Date.now,
-  ) {}
+    destinations?: DestinationRepository,
+    routes?: RouteRepository,
+  ) {
+    this.destinations = destinations ?? new DestinationRepository(database, generateId, now);
+    this.routes = routes ?? new RouteRepository(database, generateId, now);
+  }
 
   syncTelegramDestination(chatId: string): Destination {
-    const normalized = chatId.trim();
-    if (!normalized) throw new Error("Telegram chat ID must not be empty");
     const timestamp = this.now();
     const sync = this.database.transaction(() => {
-      let row = this.database
-        .query<DestinationRow, [string]>("SELECT * FROM destinations WHERE destination_key = ?")
-        .get("telegram-primary");
-      if (row) {
-        row = this.database
-          .query<DestinationRow, [string, number, string]>(
-            `UPDATE destinations SET config_json = ?, enabled = 1, updated_at = ? WHERE id = ? RETURNING *`,
-          )
-          .get(JSON.stringify({ chatId: normalized }), timestamp, row.id);
-      } else {
-        row = this.database
-          .query<DestinationRow, [string, string, string, string, number, number]>(
-            `INSERT INTO destinations (id, destination_key, kind, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING *`,
-          )
-          .get(
-            this.generateId(),
-            "telegram-primary",
-            "telegram",
-            JSON.stringify({ chatId: normalized }),
-            timestamp,
-            timestamp,
-          );
-      }
-      if (!row) throw new Error("Failed to sync Telegram destination");
+      const destination = this.destinations.syncTelegramDestination(chatId);
+      this.routes.ensureCompatibility(destination.id, timestamp);
       this.database
-        .query<never, [string, string, number, number]>(
+        .query<never, [number, number, string]>(
           `INSERT INTO deliveries (id, destination_id, failure_event_id, created_at, updated_at)
-         SELECT id || ':' || ?, ?, id, ?, ? FROM poll_failure_events
-         WHERE delivered_at IS NULL
-         ON CONFLICT (destination_id, failure_event_id) DO NOTHING`,
+           SELECT poll_failure_events.id || ':' || destinations.id, destinations.id,
+                  poll_failure_events.id, ?, ?
+           FROM poll_failure_events
+           JOIN routes ON routes.subscription_id = poll_failure_events.subscription_id
+           JOIN destinations ON destinations.id = routes.destination_id
+           WHERE routes.destination_id = ?
+             AND routes.enabled = 1 AND destinations.enabled = 1
+             AND poll_failure_events.delivered_at IS NULL
+           ON CONFLICT (destination_id, failure_event_id) DO NOTHING`,
         )
-        .run(row.id, row.id, timestamp, timestamp);
-      return mapDestination(row);
+        .run(timestamp, timestamp, destination.id);
+      return destination;
     });
     return sync();
   }
 
   disableTelegramDestination(): boolean {
-    const result = this.database
-      .query<never, [number, string]>(
-        "UPDATE destinations SET enabled = 0, updated_at = ? WHERE destination_key = ? AND enabled = 1",
-      )
-      .run(this.now(), "telegram-primary");
-    return result.changes === 1;
+    const destination = this.destinations.findByKey("telegram-primary");
+    if (!destination?.enabled) return false;
+    return this.destinations.setEnabled(destination.id, false) !== null;
+  }
+
+  createDestination(input: NewDestination): Destination {
+    return this.destinations.create(input);
+  }
+
+  listDestinations(limit = 100): Destination[] {
+    return this.destinations.list(limit);
+  }
+
+  findDestinationById(id: string): Destination | null {
+    return this.destinations.findById(id);
+  }
+
+  getDestination(id: string): Destination | null {
+    return this.findDestinationById(id);
+  }
+
+  updateDestination(id: string, input: DestinationUpdate): Destination | null {
+    return this.destinations.update(id, input);
+  }
+
+  setDestinationEnabled(id: string, enabled: boolean): Destination | null {
+    return this.destinations.setEnabled(id, enabled);
+  }
+
+  findById(id: string): Delivery | null {
+    const row = this.database
+      .query<DeliveryRow, [string]>("SELECT * FROM deliveries WHERE id = ?")
+      .get(id);
+    return row ? mapDelivery(row) : null;
   }
 
   list(status?: DeliveryStatus, limit = 100): Delivery[] {
@@ -203,6 +214,47 @@ export class DeliveryRepository {
           .query<DeliveryRow, [number]>("SELECT * FROM deliveries ORDER BY created_at, id LIMIT ?")
           .all(limit);
     return rows.map(mapDelivery);
+  }
+
+  listPage(
+    status: DeliveryStatus | undefined,
+    limit = 100,
+    cursor?: PageCursor,
+  ): RepositoryPage<Delivery> {
+    const boundedLimit = Number.isSafeInteger(limit) && limit >= 1 && limit <= 500 ? limit : null;
+    if (boundedLimit === null) throw new Error("limit must be an integer between 1 and 500");
+    const rows = status
+      ? cursor
+        ? this.database
+            .query<DeliveryRow, [DeliveryStatus, number, number, string, number]>(
+              `SELECT * FROM deliveries
+               WHERE status = ?
+                 AND (created_at > ? OR (created_at = ? AND id > ?))
+               ORDER BY created_at, id LIMIT ?`,
+            )
+            .all(status, cursor.timestamp, cursor.timestamp, cursor.id, boundedLimit + 1)
+        : this.database
+            .query<DeliveryRow, [DeliveryStatus, number]>(
+              "SELECT * FROM deliveries WHERE status = ? ORDER BY created_at, id LIMIT ?",
+            )
+            .all(status, boundedLimit + 1)
+      : cursor
+        ? this.database
+            .query<DeliveryRow, [number, number, string, number]>(
+              `SELECT * FROM deliveries
+               WHERE created_at > ? OR (created_at = ? AND id > ?)
+               ORDER BY created_at, id LIMIT ?`,
+            )
+            .all(cursor.timestamp, cursor.timestamp, cursor.id, boundedLimit + 1)
+        : this.database
+            .query<DeliveryRow, [number]>(
+              "SELECT * FROM deliveries ORDER BY created_at, id LIMIT ?",
+            )
+            .all(boundedLimit + 1);
+    return {
+      items: rows.slice(0, boundedLimit).map(mapDelivery),
+      hasMore: rows.length > boundedLimit,
+    };
   }
 
   listAttempts(deliveryId: string): DeliveryAttempt[] {

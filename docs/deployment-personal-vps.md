@@ -14,8 +14,14 @@ sudo bash -c '
   read -r -s -p "Telegram bot token: " token
   printf "\n"
   read -r -p "Telegram chat ID: " chat
-  printf "TELEGRAM_BOT_TOKEN=%s\nTELEGRAM_CHAT_ID=%s\n" "$token" "$chat" > /opt/curio/.env
-  unset token chat
+  read -r -p "Telegram webhook URL (blank to disable): " webhook_url
+  read -r -p "Telegram allowed user IDs (comma-separated): " allowed_users
+  read -r -p "Telegram allowed chat IDs (blank for any chat): " allowed_chats
+  read -r -s -p "Telegram webhook secret (blank to disable): " webhook_secret
+  printf "\n"
+  printf "TELEGRAM_BOT_TOKEN=%s\nTELEGRAM_CHAT_ID=%s\nTELEGRAM_WEBHOOK_URL=%s\nTELEGRAM_WEBHOOK_SECRET=%s\nTELEGRAM_ALLOWED_USER_IDS=%s\nTELEGRAM_ALLOWED_CHAT_IDS=%s\n" \
+    "$token" "$chat" "$webhook_url" "$webhook_secret" "$allowed_users" "$allowed_chats" > /opt/curio/.env
+  unset token chat webhook_url webhook_secret allowed_users allowed_chats
 '
 sudo stat -c '%a %U:%G %n' /opt/curio/.env
 exit
@@ -49,11 +55,23 @@ The installer keeps `.env` at `0600 root:root`, creates `runtime/curio.env` at `
 sudo /opt/curio/operations/status.sh
 sudo /opt/curio/operations/item-outbox-smoke.sh
 sudo /opt/curio/operations/telegram-failure-smoke.sh
+sudo /opt/curio/operations/ui-smoke.sh
 ```
 
 The item outbox smoke stops Curio gracefully, verifies one pending delivery inside a transaction, rolls the transaction back, and restarts Curio. It does not send an item message.
 
 The Telegram smoke creates one controlled RSS poll failure. Expected evidence is exactly one failure event, one delivery, one Telegram alert, and a stored Telegram `message_id`. The smoke subscription is soft-deleted afterward.
+
+When webhook control is enabled, configure Telegram once after the service is healthy. Normal startup never resets the webhook:
+
+```bash
+cd /opt/curio
+sudo docker compose --env-file .env -f compose.yaml exec -T curio bun run telegram:webhook
+sudo env TELEGRAM_WEBHOOK_SECRET="$(sudo awk -F= '$1 == \"TELEGRAM_WEBHOOK_SECRET\" { print substr($0, index($0, \"=\") + 1) }' .env)" \
+  CURIO_WEBHOOK_BASE_URL=https://curio.example.com /opt/curio/operations/telegram-webhook-smoke.sh
+```
+
+The webhook smoke verifies `GET` rejection, secret validation, and a valid update response without sending a real user command.
 
 Verify a restart:
 
@@ -73,7 +91,7 @@ sudo /opt/curio/operations/backup.sh daily
 sudo /opt/curio/operations/restore-rehearsal.sh
 ```
 
-Backups use SQLite `.backup`, mode `0600`, and must return `ok` from `PRAGMA integrity_check`. Restore rehearsal writes only under `/opt/curio/restore-test`, reruns migrations, and requires exactly five migration records.
+Backups use SQLite `.backup`, mode `0600`, and must return `ok` from `PRAGMA integrity_check`. Restore rehearsal writes only under `/opt/curio/restore-test`, reruns migrations, and requires exactly seven migration records.
 
 ## 5. Operations
 
@@ -129,6 +147,6 @@ Always create a backup before rollback:
 sudo /opt/curio/operations/backup.sh prerollback
 ```
 
-Application rollback to Issue #9 artifact `94ee0ff070fa0c7984f1bdfa6a7cc78661ec5bfa` is schema-tolerant: the older application ignores migration 005 tables. Build a separately tagged image from that exact revision, update `CURIO_IMAGE`, and recreate the container with `--no-build`.
+Application rollback to Issue #9 artifact `94ee0ff070fa0c7984f1bdfa6a7cc78661ec5bfa` is schema-tolerant: the older application ignores migrations 005, 006, and 007 tables. Build a separately tagged image from that exact revision, update `CURIO_IMAGE`, and recreate the container with `--no-build`.
 
 Do not delete `destinations`, `deliveries`, or `delivery_attempts`. Rolling back stops Telegram processing but preserves delivery state for a later forward deployment. If restore from backup is required, stop Curio and restore only after explicitly accepting loss of all data written after that backup.

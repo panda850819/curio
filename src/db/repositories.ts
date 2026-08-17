@@ -4,12 +4,16 @@ import type {
   Item,
   JsonValue,
   NewSubscription,
+  PageCursor,
   PollFailureEvent,
   PollWrite,
   PollWriteResult,
+  RepositoryPage,
   Subscription,
+  SubscriptionUpdate,
 } from "../domain/types.ts";
 import { sanitizeErrorMessage } from "../security/redaction.ts";
+import { RouteRepository } from "./routing-repositories.ts";
 
 interface SubscriptionRow {
   id: string;
@@ -71,6 +75,13 @@ function requireNonEmpty(value: string, field: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${field} must not be empty`);
   return normalized;
+}
+
+function requireLimit(limit: number): number {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
+    throw new Error("limit must be an integer between 1 and 500");
+  }
+  return limit;
 }
 
 function serializeJson(value: JsonValue): string {
@@ -139,11 +150,16 @@ function mapItem(row: ItemRow): Item {
 }
 
 export class SubscriptionRepository {
+  private readonly routes: RouteRepository;
+
   constructor(
     private readonly database: Database,
     private readonly generateId: () => string = () => Bun.randomUUIDv7(),
     private readonly now: () => number = Date.now,
-  ) {}
+    routes?: RouteRepository,
+  ) {
+    this.routes = routes ?? new RouteRepository(database, generateId, now);
+  }
 
   create(input: NewSubscription): Subscription {
     const adapter = requireNonEmpty(input.adapter, "adapter");
@@ -185,6 +201,18 @@ export class SubscriptionRepository {
             existing.id,
           );
         if (!restored) throw new Error("Failed to restore subscription");
+        const hasRouteSchema = this.database
+          .query<{ count: number }, []>(
+            "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'routes'",
+          )
+          .get()?.count;
+        if (hasRouteSchema === 1 && existing.deleted_at !== null) {
+          this.routes.ensureCompatibilityForRestoredSubscription(
+            existing.id,
+            existing.deleted_at,
+            timestamp,
+          );
+        }
         return mapSubscription(restored);
       }
 
@@ -250,6 +278,32 @@ export class SubscriptionRepository {
       .map(mapSubscription);
   }
 
+  listPage(limit = 100, cursor?: PageCursor): RepositoryPage<Subscription> {
+    const boundedLimit = requireLimit(limit);
+    const rows = cursor
+      ? this.database
+          .query<SubscriptionRow, [number, number, string, number]>(
+            `SELECT * FROM subscriptions
+             WHERE deleted_at IS NULL
+               AND (created_at > ? OR (created_at = ? AND id > ?))
+             ORDER BY created_at, id
+             LIMIT ?`,
+          )
+          .all(cursor.timestamp, cursor.timestamp, cursor.id, boundedLimit + 1)
+      : this.database
+          .query<SubscriptionRow, [number]>(
+            `SELECT * FROM subscriptions
+             WHERE deleted_at IS NULL
+             ORDER BY created_at, id
+             LIMIT ?`,
+          )
+          .all(boundedLimit + 1);
+    return {
+      items: rows.slice(0, boundedLimit).map(mapSubscription),
+      hasMore: rows.length > boundedLimit,
+    };
+  }
+
   findBySource(adapter: string, sourceKey: string): Subscription | null {
     const row = this.database
       .query<SubscriptionRow, [string, string]>(
@@ -282,6 +336,42 @@ export class SubscriptionRepository {
       )
       .all(timestamp, limit)
       .map(mapSubscription);
+  }
+
+  update(id: string, input: SubscriptionUpdate): Subscription | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+    const enabled = input.enabled === undefined ? existing.enabled : input.enabled;
+    const intervalMinutes =
+      input.pollIntervalMinutes === undefined
+        ? existing.pollIntervalMinutes
+        : input.pollIntervalMinutes;
+    const metadataJson = serializeJson(
+      input.metadata === undefined ? existing.metadata : input.metadata,
+    );
+    const timestamp = this.now();
+    const row = this.database
+      .query<
+        SubscriptionRow,
+        [string | null, number, string, number, number, number, number, string]
+      >(
+        `UPDATE subscriptions
+         SET title = ?, enabled = ?, metadata_json = ?, poll_interval_minutes = ?,
+             next_poll_at = CASE WHEN ? = 1 AND enabled = 0 THEN ? ELSE next_poll_at END,
+             updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL RETURNING *`,
+      )
+      .get(
+        input.title === undefined ? existing.title : input.title,
+        enabled ? 1 : 0,
+        metadataJson,
+        intervalMinutes,
+        enabled ? 1 : 0,
+        timestamp,
+        timestamp,
+        id,
+      );
+    return row ? mapSubscription(row) : null;
   }
 
   setEnabled(id: string, enabled: boolean): Subscription | null {
@@ -327,14 +417,18 @@ export class SubscriptionRepository {
         )
         .run(failureEventId, id, row.consecutive_failures, storedError, failedAt, failedAt);
       this.database
-        .query<never, [string, string, number, number]>(
+        .query<never, [string, string, number, number, string]>(
           `INSERT INTO deliveries (
              id, destination_id, failure_event_id, created_at, updated_at
            )
-           SELECT ? || ':' || id, id, ?, ?, ?
-           FROM destinations WHERE enabled = 1`,
+           SELECT ? || ':' || destinations.id, destinations.id, ?, ?, ?
+           FROM routes
+           JOIN destinations ON destinations.id = routes.destination_id
+           WHERE routes.subscription_id = ?
+             AND routes.enabled = 1 AND destinations.enabled = 1
+           ON CONFLICT (destination_id, failure_event_id) DO NOTHING`,
         )
-        .run(failureEventId, failureEventId, failedAt, failedAt);
+        .run(failureEventId, failureEventId, failedAt, failedAt, id);
       return mapSubscription(row);
     });
     return persist();
@@ -376,6 +470,62 @@ export class ItemRepository {
       )
       .all(subscriptionId, limit)
       .map(mapItem);
+  }
+
+  listTimelinePage(
+    limit = 100,
+    subscriptionId?: string,
+    cursor?: PageCursor,
+  ): RepositoryPage<Item> {
+    const boundedLimit = requireLimit(limit);
+    const rows = subscriptionId
+      ? cursor
+        ? this.database
+            .query<ItemRow, [string, number, number, string, number]>(
+              `SELECT * FROM items
+               WHERE subscription_id = ?
+                 AND (
+                   COALESCE(published_at, discovered_at) < ?
+                   OR (
+                     COALESCE(published_at, discovered_at) = ?
+                     AND id < ?
+                   )
+                 )
+               ORDER BY COALESCE(published_at, discovered_at) DESC, id DESC
+               LIMIT ?`,
+            )
+            .all(subscriptionId, cursor.timestamp, cursor.timestamp, cursor.id, boundedLimit + 1)
+        : this.database
+            .query<ItemRow, [string, number]>(
+              `SELECT * FROM items
+               WHERE subscription_id = ?
+               ORDER BY COALESCE(published_at, discovered_at) DESC, id DESC
+               LIMIT ?`,
+            )
+            .all(subscriptionId, boundedLimit + 1)
+      : cursor
+        ? this.database
+            .query<ItemRow, [number, number, string, number]>(
+              `SELECT * FROM items
+               WHERE (
+                 COALESCE(published_at, discovered_at) < ?
+                 OR (
+                   COALESCE(published_at, discovered_at) = ?
+                   AND id < ?
+                 )
+               )
+               ORDER BY COALESCE(published_at, discovered_at) DESC, id DESC
+               LIMIT ?`,
+            )
+            .all(cursor.timestamp, cursor.timestamp, cursor.id, boundedLimit + 1)
+        : this.database
+            .query<ItemRow, [number]>(
+              `SELECT * FROM items
+               ORDER BY COALESCE(published_at, discovered_at) DESC, id DESC
+               LIMIT ?`,
+            )
+            .all(boundedLimit + 1);
+    return { items: rows.slice(0, boundedLimit).map(mapItem), hasMore: rows.length > boundedLimit };
   }
 
   recordPoll(write: PollWrite): PollWriteResult {
@@ -438,12 +588,16 @@ export class ItemRepository {
           (deliveryExternalIds === null || deliveryExternalIds.has(item.externalId))
         ) {
           this.database
-            .query<never, [string, string, number, number]>(
+            .query<never, [string, string, number, number, string]>(
               `INSERT INTO deliveries (id, destination_id, item_id, created_at, updated_at)
-               SELECT ? || ':' || id, id, ?, ?, ?
-               FROM destinations WHERE enabled = 1`,
+               SELECT ? || ':' || destinations.id, destinations.id, ?, ?, ?
+               FROM routes
+               JOIN destinations ON destinations.id = routes.destination_id
+               WHERE routes.subscription_id = ?
+                 AND routes.enabled = 1 AND destinations.enabled = 1
+               ON CONFLICT (destination_id, item_id) DO NOTHING`,
             )
-            .run(itemId, itemId, write.polledAt, write.polledAt);
+            .run(itemId, itemId, write.polledAt, write.polledAt, write.subscriptionId);
         }
       }
 
@@ -502,3 +656,10 @@ export class ItemRepository {
     };
   }
 }
+
+export {
+  DestinationRepository,
+  DuplicateDestinationError,
+  DuplicateRouteError,
+  RouteRepository,
+} from "./routing-repositories.ts";

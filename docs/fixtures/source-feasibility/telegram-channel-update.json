@@ -1,0 +1,14 @@
+{
+  "update_id": 700000001,
+  "channel_post": {
+    "message_id": 42,
+    "date": 1786838400,
+    "chat": {
+      "id": -1000000000000,
+      "type": "channel",
+      "title": "Example public channel",
+      "username": "example_public_channel"
+    },
+    "text": "Synthetic channel post for adapter contract tests"
+  }
+}

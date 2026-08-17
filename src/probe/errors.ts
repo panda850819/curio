@@ -11,7 +11,8 @@ export type ProbeErrorCode =
   | "redirect_loop"
   | "redirect_limit"
   | "body_limit"
-  | "invalid_feed";
+  | "invalid_feed"
+  | "youtube_channel_unresolved";
 
 export class ProbeError extends Error {
   constructor(

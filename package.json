@@ -17,7 +17,8 @@
     "lint": "biome check .",
     "test": "bun test",
     "check": "bun run typecheck && bun run lint && bun test",
-    "smoke:docker": "bash scripts/docker-smoke.sh"
+    "smoke:docker": "bash scripts/docker-smoke.sh",
+    "telegram:webhook": "bun run src/bot/setup-webhook.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.0",

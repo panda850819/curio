@@ -30,7 +30,7 @@ docker run --rm \
   --env DATABASE_PATH=/restore/curio.db \
   "$IMAGE" bun run src/db/migrate.ts >/dev/null
 migration_count=$(sqlite3 "$RESTORE_DB" 'SELECT count(*) FROM schema_migrations;')
-if [[ "$migration_count" != 5 ]]; then
+if [[ "$migration_count" != 7 ]]; then
   echo "restored migration count mismatch: $migration_count" >&2
   exit 1
 fi
