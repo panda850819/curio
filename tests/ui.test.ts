@@ -63,7 +63,11 @@ describe("Curio Web UI", () => {
     expect(dashboard.status).toBe(200);
     const dashboardHtml = await dashboard.text();
     expect(dashboardHtml).toContain("Curio");
-    expect(dashboardHtml).toContain("你的好奇心索引");
+    expect(dashboardHtml).toContain("把值得讀的東西拉進來");
+    expect(dashboardHtml).toContain("PULL / READING COLLECTOR");
+    expect(dashboardHtml).toContain('class="curio-mark"');
+    expect(dashboardHtml).toContain("theme-color");
+    expect(dashboardHtml).not.toContain("你的好奇心索引");
     expect(dashboardHtml).not.toContain("TELEGRAM_BOT_TOKEN");
     expect(dashboardHtml).not.toContain("X_AUTH_TOKEN");
 
