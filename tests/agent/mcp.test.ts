@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AGENT_MANIFEST } from "../../src/agent/manifest.ts";
 import { CurioAgentApiClient } from "../../src/agent/client.ts";
 import { createCurioMcpServer } from "../../src/agent/mcp.ts";
 import { createCurioAgentTools } from "../../src/agent/tools.ts";
@@ -43,6 +44,9 @@ describe("Curio MCP transport", () => {
     const listedTools = (listed?.result as { tools: Array<{ name: string }> }).tools;
     expect(listedTools.map((tool) => tool.name)).toContain("curio_probe_source");
     expect(listedTools.map((tool) => tool.name)).toContain("curio_remove_source");
+    expect(listedTools.map((tool) => tool.name).sort()).toEqual(
+      [...AGENT_MANIFEST.toolkit.toolNames].sort(),
+    );
 
     const called = await context.server.handle({
       jsonrpc: "2.0",
