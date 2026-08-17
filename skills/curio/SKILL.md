@@ -77,6 +77,18 @@ API base URL 由執行環境提供，不要把 production URL、Access token 或
 
 不要把原始 credentials、完整 runtime environment、SQLite path 或未經使用者要求的大量 item 內容放進回報。
 
+## Agent toolkit／MCP
+
+Repository 提供 stdio MCP transport：
+
+```bash
+CURIO_AGENT_URL=http://127.0.0.1:3000 bun run agent:mcp
+```
+
+它只連到既有 Curio HTTP API，不開新的 host port。將 MCP process 放在 Curio container 或同一個 private network；不要把 `CURIO_AGENT_URL` 指向未受保護的公開服務。先呼叫 `curio_get_manifest`，再使用 `curio_probe_source`、`curio_create_subscription`、`curio_create_route` 與 `curio_poll_source` 等 tools。
+
+`curio_remove_source`、`curio_remove_route` 與其他標記為需要確認的 tool 必須傳入 `confirm: true`；agent 只能在使用者明確確認後傳入。
+
 ## API 參考
 
-完整 endpoint 與輸入欄位以 `GET /api/v1/agent/manifest` 和 `docs/api.md` 為準。若 skill 內容與 manifest 衝突，以服務回傳的 manifest 為準，並回報文件漂移。
+完整 endpoint、輸入欄位與 tool 對應以 `GET /api/v1/agent/manifest` 和 `docs/api.md` 為準。若 skill 內容與 manifest 衝突，以服務回傳的 manifest 為準，並回報文件漂移。

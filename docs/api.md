@@ -55,6 +55,10 @@ Cursor 是服務內部的 keyset cursor。不要自行解碼或修改。資料�
 
 Agent 應先讀取 manifest，再依照 `probe → candidate confirmation → subscription → route → poll → verify` 工作流操作。`cursor` 是 opaque value，不可自行解碼；`subscriptions.remove` 與 `routes.remove` 必須取得明確確認。
 
+### MCP stdio toolkit
+
+可用 `CURIO_AGENT_URL=http://127.0.0.1:3000 bun run agent:mcp` 啟動 stdio MCP transport。它只呼叫既有 HTTP API，不開新的 host port；應在 Curio container 或同一個 private network 執行。MCP client 會先呼叫 `curio_get_manifest`，再使用 source、route 與 delivery tools。需要確認的工具必須傳入 `confirm: true`。
+
 ## Probe
 
 ### `POST /api/v1/probes`
