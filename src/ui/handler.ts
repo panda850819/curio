@@ -585,6 +585,11 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
   .field-wide { grid-column: auto; }
   .record-row { grid-template-columns: 1fr; gap: 0.7rem; }
   .record-actions { justify-content: start; }
+  .toolbar { display: grid; grid-template-columns: 1fr; align-items: stretch; }
+  .toolbar .field, .toolbar .field-small { min-width: 0; width: 100%; }
+  .toolbar .button { justify-self: start; }
+  .source-topic { flex-wrap: wrap; }
+  .source-topic a { overflow-wrap: anywhere; }
   .key-value { grid-template-columns: 1fr; gap: 0.1rem; }
   .key-value dd { margin-bottom: 0.5rem; }
   .footer { display: grid; }
