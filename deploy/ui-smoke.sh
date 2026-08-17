@@ -32,7 +32,7 @@ for (const path of paths) {
   });
   const body = await response.text();
   if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
-  if (!body.includes("id=\\"main-content\\"")) throw new Error(`${path}: missing main content`);
+  if (!body.includes(`id="main-content"`)) throw new Error(`${path}: missing main content`);
   if (!body.includes("Curio")) throw new Error(`${path}: missing Curio marker`);
   const setCookie = response.headers.get("set-cookie");
   if (setCookie) cookie = setCookie.split(";", 1)[0];
