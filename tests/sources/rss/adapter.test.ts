@@ -206,9 +206,10 @@ describe("RssSourceAdapter", () => {
     const result = await adapter.poll(context.subscription.id);
 
     expect(result).toMatchObject({
+      status: "fetched",
       insertedItems: 0,
-      duplicateItems: 1,
-      cursor: {},
+      duplicateItems: 0,
+      cursor: { baselineExternalIds: ["same"] },
     });
     context.setNow(3_000);
     await adapter.poll(context.subscription.id);
@@ -316,7 +317,7 @@ describe("RssSourceAdapter", () => {
     context.database.close();
   });
 
-  test("delivers every genuinely new item after the initial poll", async () => {
+  test("delivers new items without replaying the initial feed history", async () => {
     const context = setup({ backfillLimit: 2, initialDeliveryLimit: 1 });
     new DeliveryRepository(
       context.database,
@@ -328,6 +329,7 @@ describe("RssSourceAdapter", () => {
         rss([
           { id: "latest", title: "Latest" },
           { id: "old", title: "Old" },
+          { id: "archive", title: "Archive" },
         ]),
       ),
       response(
@@ -336,6 +338,7 @@ describe("RssSourceAdapter", () => {
           { id: "new-1", title: "New 1" },
           { id: "latest", title: "Latest" },
           { id: "old", title: "Old" },
+          { id: "archive", title: "Archive" },
         ]),
       ),
     ]);
@@ -343,14 +346,65 @@ describe("RssSourceAdapter", () => {
 
     await adapter.poll(context.subscription.id);
     context.setNow(2_000);
-    await adapter.poll(context.subscription.id);
+    const second = await adapter.poll(context.subscription.id);
+    const storedExternalIds = context.items
+      .listBySubscription(context.subscription.id, 100)
+      .map((item) => item.externalId);
     const deliveredExternalIds = context.database
       .query<{ external_id: string }, []>(
-        `SELECT i.external_id FROM deliveries d JOIN items i ON i.id = d.item_id ORDER BY d.created_at`,
+        `SELECT i.external_id FROM deliveries d JOIN items i ON i.id = d.item_id ORDER BY d.created_at, d.id`,
       )
       .all()
       .map((row) => row.external_id);
+
+    expect(second).toMatchObject({ insertedItems: 2, duplicateItems: 0 });
+    expect(storedExternalIds).toHaveLength(4);
+    expect(storedExternalIds).toEqual(expect.arrayContaining(["latest", "old", "new-2", "new-1"]));
     expect(deliveredExternalIds).toEqual(["latest", "new-2", "new-1"]);
+    context.database.close();
+  });
+
+  test("adopts a legacy cursor without replaying unseen history", async () => {
+    const context = setup({ backfillLimit: 2, initialDeliveryLimit: 1 });
+    new DeliveryRepository(
+      context.database,
+      () => "destination-1",
+      () => 500,
+    ).syncTelegramDestination("@channel");
+    const client = new FakeClient([
+      response(
+        rss([
+          { id: "latest", title: "Latest" },
+          { id: "old", title: "Old" },
+          { id: "archive", title: "Archive" },
+        ]),
+      ),
+      response(
+        rss([
+          { id: "latest", title: "Latest" },
+          { id: "old", title: "Old" },
+          { id: "archive", title: "Archive" },
+          { id: "fresh", title: "Fresh", date: "Thu, 01 Jan 1970 00:00:02 GMT" },
+        ]),
+      ),
+    ]);
+    const adapter = new RssSourceAdapter(client, context.subscriptions, context.items, context.now);
+
+    await adapter.poll(context.subscription.id);
+    context.database
+      .query("UPDATE subscriptions SET cursor_json = ? WHERE id = ?")
+      .run(JSON.stringify({ etag: '"legacy"' }), context.subscription.id);
+    context.setNow(2_000);
+    const second = await adapter.poll(context.subscription.id);
+
+    expect(second).toMatchObject({ insertedItems: 2, duplicateItems: 2 });
+    expect(context.database.query("SELECT id FROM deliveries ORDER BY id").all()).toEqual([
+      { id: "item-1:destination-1" },
+      { id: "item-6:destination-1" },
+    ]);
+    expect(context.subscriptions.findById(context.subscription.id)?.cursor).toMatchObject({
+      baselineExternalIds: ["latest", "old", "archive", "fresh"],
+    });
     context.database.close();
   });
 

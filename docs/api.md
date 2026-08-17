@@ -107,7 +107,7 @@ Server 會重新 probe 並驗證 candidate identity，不能只相信 client 提
 { "data": { "subscription": {}, "disposition": "created" } }
 ```
 
-相同 subscription 會回 `disposition: "existing"`，不重複建立資料。
+相同 subscription 會回 `disposition: "existing"`，不重複建立資料。RSS/Atom 第一次成功 poll 會在 cursor 保存 feed baseline；`backfillLimit` 之外的初始歷史只會被視為已見內容，不會在後續完整 feed response 中產生 delivery。沒有 baseline 的既有 RSS/Atom subscription 會先靜默建立 baseline。
 
 ### `GET /api/v1/subscriptions/:id`
 
@@ -162,7 +162,7 @@ Request：
 }
 ```
 
-Bot token 只能由 runtime secret 提供，不接受、不保存於 config。
+Bot token 只能由 runtime secret 提供，不接受、不保存於 config。Telegram delivery 對同一 destination 依 item `publishedAt` 由舊到新序列化；前一筆尚未完成或需要 retry 時，後續 delivery 會等待。
 
 ### `PATCH /api/v1/destinations/:id`
 

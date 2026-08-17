@@ -303,9 +303,31 @@ export class DeliveryRepository {
     const claim = this.database.transaction(() => {
       const rows = this.database
         .query<DeliveryRow, [number, number]>(
-          `SELECT * FROM deliveries
-         WHERE status = 'pending' OR (status = 'retry_scheduled' AND next_attempt_at <= ?)
-         ORDER BY COALESCE(next_attempt_at, created_at), created_at, id LIMIT ?`,
+          `SELECT d.*
+           FROM deliveries AS d
+           LEFT JOIN items AS delivery_item ON delivery_item.id = d.item_id
+           WHERE (d.status = 'pending' OR (d.status = 'retry_scheduled' AND d.next_attempt_at <= ?))
+             AND NOT EXISTS (
+               SELECT 1
+               FROM deliveries AS earlier
+               LEFT JOIN items AS earlier_item ON earlier_item.id = earlier.item_id
+               WHERE earlier.destination_id = d.destination_id
+                 AND earlier.status IN ('pending', 'processing', 'retry_scheduled', 'uncertain')
+                 AND (
+                   COALESCE(earlier_item.published_at, earlier.created_at) <
+                     COALESCE(delivery_item.published_at, d.created_at)
+                   OR (
+                     COALESCE(earlier_item.published_at, earlier.created_at) =
+                       COALESCE(delivery_item.published_at, d.created_at)
+                     AND (
+                       earlier.created_at < d.created_at
+                       OR (earlier.created_at = d.created_at AND earlier.id < d.id)
+                     )
+                 )
+             )
+           )
+           ORDER BY COALESCE(delivery_item.published_at, d.created_at), d.created_at, d.id
+           LIMIT ?`,
         )
         .all(timestamp, limit);
       const claimed: Delivery[] = [];

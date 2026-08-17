@@ -288,13 +288,13 @@ Selector 沒有匹配或抽取內容超過 256 KiB 會記錄 durable poll failur
 
 `RssSourceAdapter` 支援 RSS 2.0、Atom 與 RSS 1.0/RDF。它使用 Probe 的安全 transport，保存 ETag／Last-Modified、以 conditional request poll，並將 entries 正規化成 canonical items。
 
-第一次 poll 預設將最新 20 篇保存到 DB，但只替最新 1 篇建立 destination delivery。可在 subscription metadata 分別設定歷史收集與初次通知數量：
+第一次 poll 預設將最新 20 篇保存到 DB，但只替最新 1 篇建立 destination delivery；同一份 feed 的所有 external IDs 會保存成 cursor baseline，避免下一次完整 feed 回傳時重播未回填的歷史文章。可在 subscription metadata 分別設定歷史收集與初次通知數量：
 
 ```json
 {"backfillLimit": 20, "initialDeliveryLimit": 1}
 ```
 
-兩者合法範圍為 `0–500`，且 `initialDeliveryLimit` 不得大於 `backfillLimit`。後續 polls 會替每篇真正新增的 item 建立 delivery。失敗會記錄 `consecutive_failures`、`last_error`、`last_failed_at` 與 durable failure event；成功或 `304 Not Modified` 會清除 failure state。
+兩者合法範圍為 `0–500`，且 `initialDeliveryLimit` 不得大於 `backfillLimit`。後續 polls 只會替 baseline 之外真正新增的 item 建立 delivery。沒有 baseline 的既有 subscription 會在第一次成功完整 poll 時靜默建立 baseline，不會補送歷史內容。失敗會記錄 `consecutive_failures`、`last_error`、`last_failed_at` 與 durable failure event；成功或 `304 Not Modified` 會清除 failure state。
 
 Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到期 subscriptions，同一 subscription 不會在單一程序內重疊。正常 poll interval 預設 60 分鐘，可設為 `5–10080` 分鐘；失敗依 `5m → 15m → 1h → 6h` backoff 重試。
 
@@ -317,7 +317,7 @@ bun run curio deliveries list --status uncertain --json
 bun run curio deliveries retry <delivery-id> --json
 ```
 
-Telegram 429 依 `retry_after` 重試，network/5xx 最多嘗試 5 次。Timeout 或 malformed success 會標記 `uncertain`，必須人工 retry，避免盲目重送造成 duplicate。
+Telegram delivery 對每個 destination 依 `publishedAt` 由舊到新排序並序列化；沒有 `publishedAt` 時回退到 delivery 建立時間。同一 destination 的前一筆 delivery 尚未完成或需要 retry 時，後續項目會停在 queue 中。Telegram 429 依 `retry_after` 重試，network/5xx 最多嘗試 5 次。Timeout 或 malformed success 會標記 `uncertain`，必須人工 retry，避免盲目重送造成 duplicate。
 
 ## 環境變數
 
