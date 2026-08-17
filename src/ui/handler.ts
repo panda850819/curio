@@ -750,7 +750,7 @@ function subscriptionsContent(app: CurioApplication, session: UiSession, url: UR
   return `${heading(
     "來源／索引",
     "訂閱",
-    "依來源類型整理名稱與最近主題，再查看完整健康紀錄。",
+    "依類型整理來源名稱與最近主題。",
     link("/subscriptions/new", "新增訂閱", "button"),
   )}
   <form class="toolbar" method="get" action="/subscriptions"><div class="field"><label for="subscription-search">搜尋來源</label><input id="subscription-search" name="q" value="${escapeHtml(query)}" placeholder="名稱、主題、URL、來源類型"></div><div class="field field-small"><label for="subscription-status">篩選</label><select id="subscription-status" name="status"><option value="all"${filter === "all" ? " selected" : ""}>全部</option><option value="active"${filter === "active" ? " selected" : ""}>啟用中</option><option value="paused"${filter === "paused" ? " selected" : ""}>已暫停</option></select></div><button class="button" type="submit">套用</button></form>
