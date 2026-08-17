@@ -248,7 +248,7 @@ describe("Curio Web UI", () => {
       new Request("http://curio.test/subscriptions", { headers: { cookie: session.cookie } }),
     );
     const subscriptionsHtml = await subscriptions.text();
-    expect(subscriptionsHtml).toContain("網站 Feed");
+    expect(subscriptionsHtml).toContain("網站");
     expect(subscriptionsHtml).toContain("最近主題");
     expect(subscriptionsHtml).toContain("First finding");
 
@@ -260,6 +260,56 @@ describe("Curio Web UI", () => {
       new Request("http://curio.test/deliveries", { headers: { cookie: session.cookie } }),
     );
     expect(await deliveries.text()).toContain("投遞");
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("groups YouTube feeds separately and combines website feed formats", async () => {
+    const context = harness();
+    context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "atom",
+        sourceKey: "UCcurio123",
+        sourceUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCcurio123",
+        title: "商談・不廢話 | Real Biz Chat",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "rss",
+        sourceKey: "https://example.com/feed.xml",
+        sourceUrl: "https://example.com/feed.xml",
+        title: "Example RSS",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "atom",
+        sourceKey: "https://example.org/atom.xml",
+        sourceUrl: "https://example.org/atom.xml",
+        title: "Example Atom",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+
+    const response = await context.ui(new Request("http://curio.test/subscriptions"));
+    const html = await response.text();
+    expect(html).toContain('<span class="source-family">YouTube</span>');
+    expect(html).toContain('<span class="source-format">YouTube</span>');
+    expect(html).toContain('<span class="source-family">網站</span>');
+    expect(html).not.toContain("網站 Feed");
+    expect(html).not.toContain("網站 Atom");
+    expect(html).toContain('<span class="source-format">RSS</span>');
+    expect(html).toContain('<span class="source-format">Atom</span>');
 
     context.app.close();
     context.database.close();

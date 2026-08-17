@@ -260,6 +260,11 @@ function sourcePresentation(subscription: Subscription, latestItem?: Item): Sour
   }
 
   const isSubstack = hostname.endsWith(".substack.com");
+  const isYoutube =
+    subscription.adapter === "youtube" ||
+    hostname === "youtube.com" ||
+    hostname === "www.youtube.com" ||
+    hostname === "m.youtube.com";
   const family =
     subscription.adapter === "x" || hostname === "x.com" || hostname === "twitter.com"
       ? "X"
@@ -267,29 +272,28 @@ function sourcePresentation(subscription: Subscription, latestItem?: Item): Sour
         ? "Telegram"
         : isSubstack
           ? "Substack"
-          : subscription.adapter === "youtube"
+          : isYoutube
             ? "YouTube"
             : subscription.adapter === "github" || subscription.adapter === "github_atom"
               ? "GitHub"
               : subscription.adapter === "html"
                 ? "網站頁面"
-                : subscription.adapter === "rss" && pathname.includes("atom")
-                  ? "網站 Atom"
-                  : subscription.adapter === "rss"
-                    ? "網站 Feed"
-                    : adapterLabel(subscription.adapter);
+                : subscription.adapter === "rss"
+                  ? "網站"
+                  : adapterLabel(subscription.adapter);
   const role =
     family === "X"
       ? "人物動態"
-      : family === "Telegram"
+      : family === "Telegram" || family === "YouTube"
         ? "頻道"
         : family === "Substack"
           ? "出版物"
           : family === "網站頁面"
             ? "頁面監測"
             : "來源";
-  const format =
-    subscription.adapter === "rss"
+  const format = isYoutube
+    ? "YouTube"
+    : subscription.adapter === "rss"
       ? pathname.includes("atom")
         ? "Atom"
         : "RSS"
