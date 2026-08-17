@@ -389,25 +389,30 @@ export class SubscriptionRepository {
     return row ? mapSubscription(row) : null;
   }
 
-  recordFailure(id: string, errorMessage: string, failedAt: number): Subscription | null {
+  recordFailure(
+    id: string,
+    errorMessage: string,
+    failedAt: number,
+    retryAt?: number,
+  ): Subscription | null {
     const storedError = sanitizeErrorMessage(errorMessage);
     const persist = this.database.transaction(() => {
       const row = this.database
-        .query<SubscriptionRow, [string, number, number, number, string]>(
+        .query<SubscriptionRow, [string, number, number | null, number, number, string]>(
           `UPDATE subscriptions
            SET consecutive_failures = consecutive_failures + 1,
                last_error = ?, last_failed_at = ?,
-               next_poll_at = ? + CASE consecutive_failures
+               next_poll_at = COALESCE(?, ? + CASE consecutive_failures
                  WHEN 0 THEN 300000
                  WHEN 1 THEN 900000
                  WHEN 2 THEN 3600000
                  ELSE 21600000
-               END,
+               END),
                updated_at = ?
            WHERE id = ? AND enabled = 1 AND deleted_at IS NULL
            RETURNING *`,
         )
-        .get(storedError, failedAt, failedAt, failedAt, id);
+        .get(storedError, failedAt, retryAt ?? null, failedAt, failedAt, id);
       if (!row) return null;
 
       const failureEventId = Bun.randomUUIDv7();
@@ -587,7 +592,7 @@ export class ItemRepository {
             item.metadataJson,
             existing.id,
           );
-        if (update.changes !== 1) throw new Error("Failed to update Telegram item");
+        if (update.changes !== 1) throw new Error("Failed to update item");
         this.updateEventSubscription(
           write.subscriptionId,
           cursorJson,

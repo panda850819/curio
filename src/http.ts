@@ -310,13 +310,15 @@ function parseCandidate(value: unknown): SubscriptionCandidate {
     adapter !== "html" &&
     adapter !== "youtube" &&
     adapter !== "telegram" &&
-    adapter !== "telegram_html"
+    adapter !== "telegram_html" &&
+    adapter !== "github" &&
+    adapter !== "github_atom"
   ) {
     throw new AppError("validation", "invalid_enum", "adapter is not supported");
   }
   if (
-    !(["rss", "atom", "rdf", "x", "html", "youtube", "telegram"] as const).includes(
-      format as "rss" | "atom" | "rdf" | "x" | "html" | "youtube" | "telegram",
+    !(["rss", "atom", "rdf", "x", "html", "youtube", "telegram", "github"] as const).includes(
+      format as "rss" | "atom" | "rdf" | "x" | "html" | "youtube" | "telegram" | "github",
     )
   ) {
     throw new AppError("validation", "invalid_enum", "format is not supported");

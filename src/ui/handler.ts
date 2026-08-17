@@ -236,6 +236,8 @@ function adapterLabel(value: string): string {
       youtube: "YouTube",
       telegram: "Telegram Bot",
       telegram_html: "Telegram HTML",
+      github: "GitHub Releases",
+      github_atom: "GitHub Atom",
     }[value] ?? value
   );
 }
@@ -821,7 +823,9 @@ function formCandidate(form: FormData): SubscriptionCandidate {
     adapter !== "html" &&
     adapter !== "youtube" &&
     adapter !== "telegram" &&
-    adapter !== "telegram_html"
+    adapter !== "telegram_html" &&
+    adapter !== "github" &&
+    adapter !== "github_atom"
   )
     throw new AppError("validation", "invalid_candidate", "來源 adapter 無效");
   if (
@@ -831,7 +835,8 @@ function formCandidate(form: FormData): SubscriptionCandidate {
     format !== "x" &&
     format !== "html" &&
     format !== "youtube" &&
-    format !== "telegram"
+    format !== "telegram" &&
+    format !== "github"
   )
     throw new AppError("validation", "invalid_candidate", "來源格式無效");
   if (discoveredVia !== "direct" && discoveredVia !== "html-link")
