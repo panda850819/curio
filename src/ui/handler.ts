@@ -470,7 +470,7 @@ main { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 3rem 0 
 .page-heading { display: flex; justify-content: space-between; gap: 2rem; align-items: end; margin-bottom: 2.3rem; }
 .page-heading h1 { margin: 0.25rem 0 0.6rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", serif; font-size: clamp(2rem, 4vw, 3.6rem); line-height: 1.08; font-weight: 600; letter-spacing: -0.022em; text-wrap: balance; }
 .eyebrow { margin: 0; color: var(--rust); font-size: 0.76rem; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
-.lede { max-width: 62ch; margin: 0; color: var(--ink-soft); text-wrap: pretty; }
+.lede { max-width: 62ch; margin: 0; color: var(--ink-soft); text-wrap: pretty; overflow-wrap: anywhere; }
 .page-actions, .button-row, .inline-form { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem; }
 .inline-form { display: inline-flex; }
 .flash { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1rem; margin-bottom: 1.5rem; border: 1px solid var(--line); background: var(--paper-lift); }
@@ -588,6 +588,7 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
   .toolbar { display: grid; grid-template-columns: 1fr; align-items: stretch; }
   .toolbar .field, .toolbar .field-small { min-width: 0; width: 100%; }
   .toolbar .button { justify-self: start; }
+  .source-row > div { min-width: 0; }
   .source-topic { flex-wrap: wrap; }
   .source-topic a { overflow-wrap: anywhere; }
   .key-value { grid-template-columns: 1fr; gap: 0.1rem; }
