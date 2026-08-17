@@ -591,7 +591,7 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
   .toolbar .button { justify-self: start; }
   .source-row > div { min-width: 0; }
   .source-topic { flex-wrap: wrap; }
-  .source-topic a { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+  .source-topic a { min-width: 0; overflow-wrap: anywhere; word-break: break-all; }
   .key-value { grid-template-columns: 1fr; gap: 0.1rem; }
   .key-value dd { margin-bottom: 0.5rem; }
   .footer { display: grid; }
