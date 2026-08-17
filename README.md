@@ -44,6 +44,10 @@ RSS 是可選的輸入與輸出格式，不是內部必經格式。內部以資�
 
 Curio 內建 same-origin、server-rendered 管理介面，入口是 `/`。可完成 subscription、destination、route 與 delivery failure 的日常操作；mutation 受 `HttpOnly; Secure; SameSite=Lax` session 與 CSRF token 保護。
 
+## Agent 操作介面
+
+Curio 提供 `GET /api/v1/agent/manifest`，回傳 agent 可讀的操作清單與安全契約。`skills/curio/SKILL.md` 定義 probe、訂閱、路由、輪詢與驗證的標準工作流。Agent 應優先使用 manifest 與 JSON API，不直接讀取 SQLite，也不接觸 runtime secrets。
+
 ## Telegram 控制面
 
 設定 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET` 與 `TELEGRAM_ALLOWED_USER_IDS` 後，Curio 會提供 `POST /telegram/webhook`。可選的 `TELEGRAM_ALLOWED_CHAT_IDS` 會再限制 chat。
