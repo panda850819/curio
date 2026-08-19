@@ -73,6 +73,8 @@ sudo env TELEGRAM_WEBHOOK_SECRET="$(sudo awk -F= '$1 == \"TELEGRAM_WEBHOOK_SECRE
 
 The webhook smoke verifies `GET` rejection, secret validation, and a valid update response without sending a real user command.
 
+When the shared email inbox is enabled, set `EMAIL_INBOUND_ADDRESS` and `EMAIL_INBOUND_WEBHOOK_SECRET` in `/opt/curio/.env`. Configure the external inbound email service to send its normalized JSON payload to `https://curio.example.com/email/inbound` with `X-Curio-Email-Secret`. Curio does not run an SMTP server.
+
 Verify a restart:
 
 ```bash

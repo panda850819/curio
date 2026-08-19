@@ -376,6 +376,21 @@ export class SubscriptionRepository {
     return row ? mapSubscription(row) : null;
   }
 
+  setTitleIfEmpty(id: string, title: string): Subscription | null {
+    const normalized = title.trim();
+    if (!normalized) return this.findById(id);
+    const timestamp = this.now();
+    const row = this.database
+      .query<SubscriptionRow, [string, number, string]>(
+        `UPDATE subscriptions
+         SET title = ?, updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL AND (title IS NULL OR trim(title) = '')
+         RETURNING *`,
+      )
+      .get(normalized.slice(0, 240), timestamp, id);
+    return row ? mapSubscription(row) : this.findById(id);
+  }
+
   setEnabled(id: string, enabled: boolean): Subscription | null {
     const timestamp = this.now();
     const row = this.database
@@ -477,6 +492,15 @@ export class ItemRepository {
       )
       .all(subscriptionId, limit)
       .map(mapItem);
+  }
+
+  listExternalIds(subscriptionId: string): string[] {
+    return this.database
+      .query<{ external_id: string }, [string]>(
+        "SELECT external_id FROM items WHERE subscription_id = ?",
+      )
+      .all(subscriptionId)
+      .map((row) => row.external_id);
   }
 
   listTimelinePage(

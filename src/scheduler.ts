@@ -81,7 +81,7 @@ export interface SchedulerEvent {
   error?: string;
 }
 
-const EVENT_DRIVEN_SOURCE_ADAPTERS = new Set(["telegram"]);
+const EVENT_DRIVEN_SOURCE_ADAPTERS = new Set(["telegram", "email"]);
 
 export class PollScheduler {
   private stopping = false;

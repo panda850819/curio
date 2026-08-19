@@ -97,6 +97,11 @@ export function youtubeUrlInfo(input: string): YoutubeUrlInfo | null {
   return parseUrl(input)?.info ?? null;
 }
 
+export function youtubeChannelIdFromFeedUrl(input: string): string | null {
+  const info = parseUrl(input)?.info;
+  return info?.kind === "feed" ? (info.channelId ?? null) : null;
+}
+
 export async function youtubeProbeResult(
   inputUrl: string,
   client: ProbeHttpClient,

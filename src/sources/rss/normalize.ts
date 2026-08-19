@@ -10,6 +10,11 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function feedTitle(value: unknown): string | null {
+  const title = text(value);
+  return title ? title.slice(0, 240) : null;
+}
+
 function person(value: unknown): string | null {
   if (typeof value === "string") return text(value);
   if (value && typeof value === "object" && "name" in value) return text(value.name);
@@ -127,7 +132,7 @@ function normalizeRss(
       return [];
     }
   });
-  return { format: "rss", entries, warnings };
+  return { format: "rss", title: feedTitle(parsed.feed.title), entries, warnings };
 }
 
 function normalizeAtom(
@@ -197,7 +202,7 @@ function normalizeAtom(
       return [];
     }
   });
-  return { format: "atom", entries, warnings };
+  return { format: "atom", title: feedTitle(parsed.feed.title), entries, warnings };
 }
 
 function normalizeRdf(
@@ -261,7 +266,7 @@ function normalizeRdf(
       return [];
     }
   });
-  return { format: "rdf", entries, warnings };
+  return { format: "rdf", title: feedTitle(parsed.feed.title), entries, warnings };
 }
 
 export function normalizeFeed(xml: string, sourceUrl: string): NormalizedFeed {

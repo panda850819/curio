@@ -147,4 +147,47 @@ describe("DeliveryRepository", () => {
     ]);
     context.database.close();
   });
+
+  test("serializes each destination by publishedAt and blocks later items on retry", () => {
+    const context = setup();
+    context.deliveries.syncTelegramDestination("@channel");
+    context.items.recordPoll({
+      subscriptionId: context.subscription.id,
+      items: [
+        { externalId: "newest", publishedAt: 3_000 },
+        { externalId: "oldest", publishedAt: 1_000 },
+        { externalId: "middle", publishedAt: 2_000 },
+      ],
+      cursor: {},
+      polledAt: 4_000,
+    });
+
+    const first = context.deliveries.claimDue(4);
+    expect(first).toHaveLength(1);
+    const firstDelivery = first[0];
+    if (!firstDelivery) throw new Error("Expected oldest delivery");
+    expect(context.deliveries.loadPayload(firstDelivery.id).item?.externalId).toBe("oldest");
+    context.deliveries.complete({
+      deliveryId: firstDelivery.id,
+      outcome: "delivered",
+      startedAt: 5_000,
+      finishedAt: 5_100,
+    });
+
+    const second = context.deliveries.claimDue(4);
+    expect(second).toHaveLength(1);
+    const secondDelivery = second[0];
+    if (!secondDelivery) throw new Error("Expected middle delivery");
+    expect(context.deliveries.loadPayload(secondDelivery.id).item?.externalId).toBe("middle");
+    context.deliveries.complete({
+      deliveryId: secondDelivery.id,
+      outcome: "retry",
+      startedAt: 5_200,
+      finishedAt: 5_300,
+      nextAttemptAt: 10_000,
+    });
+
+    expect(context.deliveries.claimDue(4)).toEqual([]);
+    context.database.close();
+  });
 });

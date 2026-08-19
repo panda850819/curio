@@ -3,6 +3,8 @@ import type { CanonicalItem, JsonValue } from "../../domain/types.ts";
 export interface RssCursor {
   etag?: string;
   lastModified?: string;
+  baselineExternalIds?: string[];
+  baselinePending?: boolean;
 }
 
 export interface RssPollWarning {
@@ -18,6 +20,7 @@ export interface NormalizedFeedEntry {
 
 export interface NormalizedFeed {
   format: "rss" | "atom" | "rdf";
+  title: string | null;
   entries: NormalizedFeedEntry[];
   warnings: RssPollWarning[];
 }

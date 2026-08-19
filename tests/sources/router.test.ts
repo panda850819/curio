@@ -24,6 +24,11 @@ describe("SourceRouter", () => {
       sourceKey: "Kay",
       sourceUrl: "https://x.com/Kay",
     });
+    const legacyYoutube = subscriptions.create({
+      adapter: "rss",
+      sourceKey: "https://www.youtube.com/feeds/videos.xml?channel_id=UC1234567890abcdefghi",
+      sourceUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UC1234567890abcdefghi",
+    });
     const calls: string[] = [];
     const poller = (kind: string): SourcePoller => ({
       poll: async (subscriptionId) => {
@@ -31,11 +36,16 @@ describe("SourceRouter", () => {
         return { status: "fetched", insertedItems: 0, duplicateItems: 0 };
       },
     });
-    const router = new SourceRouter(subscriptions, { rss: poller("rss"), x: poller("x") });
+    const router = new SourceRouter(subscriptions, {
+      rss: poller("rss"),
+      x: poller("x"),
+      youtube: poller("youtube"),
+    });
 
     await router.poll(rss.id);
     await router.poll(x.id);
-    expect(calls).toEqual([`rss:${rss.id}`, `x:${x.id}`]);
+    await router.poll(legacyYoutube.id);
+    expect(calls).toEqual([`rss:${rss.id}`, `x:${x.id}`, `youtube:${legacyYoutube.id}`]);
     await expect(router.poll("missing")).rejects.toThrow("Subscription not found");
     database.close();
   });

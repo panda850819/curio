@@ -15,10 +15,15 @@ import type {
 } from "../domain/types.ts";
 import type { ProbeResult, SubscriptionCandidate } from "../probe/types.ts";
 import type { SourcePollResult } from "../scheduler.ts";
+import type { EmailInbox } from "../sources/email/types.ts";
 import type { Page } from "./pagination.ts";
 
 export interface ProbeService {
   probe(inputUrl: string): Promise<ProbeResult>;
+}
+
+export interface EmailInboxService {
+  get(): EmailInbox | null;
 }
 
 export interface FollowInput {
@@ -76,6 +81,7 @@ export interface DeliveryService {
 
 export interface ApplicationServices {
   probe: ProbeService;
+  email: EmailInboxService;
   subscriptions: SubscriptionService;
   destinations: DestinationService;
   routes: RouteService;

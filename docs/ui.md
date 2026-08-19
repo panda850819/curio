@@ -4,7 +4,7 @@ Curio 使用 Bun-native server-rendered HTML，沒有新增 frontend framework�
 
 ## Visual direction
 
-`Field journal / brass-and-ink`：舊紙色背景、深墨綠文字、黃銅提示與鐵鏽色錯誤。頁面採 cardless sections、清楚的資料列與可收合的 delivery attempts，桌面與手機共用同一組資訊階層。
+`PULL / graphite-and-signal`：舊紙色背景、石墨文字、signal orange 與暖黃焦點。品牌 mark 使用開放的 capture aperture 與被拉入的 signal fragment；頁面維持 cardless sections、清楚的資料列與可收合的 delivery attempts，桌面與手機共用同一組資訊階層。
 
 ## Security
 
@@ -21,4 +21,6 @@ Curio 使用 Bun-native server-rendered HTML，沒有新增 frontend framework�
 - `/destinations`：Telegram destination create、verify、enable/disable。
 - `/deliveries`：status filter、attempt detail、uncertain/permanent retry。
 
-Telegram HTML subscription 顯示為定期輪詢；Bot API subscription 才是事件驅動。Production 只需讓既有 reverse proxy 將 same-origin traffic 轉到 Curio；UI 不另開 port。瀏覽器 smoke 可使用 `deploy/ui-smoke.sh`。
+`/subscriptions` 依來源家族分組，將 YouTube 獨立呈現，RSS 與 Atom 統一歸入網站來源，並顯示 feed 名稱、來源角色、格式與最近主題；RSS／Atom 的 channel title 會在成功輪詢後補入 subscription 名稱。共用 Email Inbox 會在 `/subscriptions/new` 顯示收件地址與管理入口。Telegram HTML subscription 顯示為定期輪詢；Bot API 與 Email subscription 則是事件驅動。Production 只需讓既有 reverse proxy 將 same-origin traffic 轉到 Curio；UI 不另開 port。瀏覽器 smoke 可使用 `deploy/ui-smoke.sh`。
+
+人物整合目前採保守策略：來源可在未來手動連到同一個人物，匿名或無法確認作者的來源維持獨立，不用同名或 handle 自動合併。

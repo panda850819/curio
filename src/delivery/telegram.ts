@@ -89,26 +89,30 @@ function escapedWithin(value: string, maximumOutput: number): string {
 }
 
 function publicationLine(payload: DeliveryPayload): string {
-  const author = payload.item?.author?.trim() || "作者未提供";
+  const details: string[] = [];
+  const author = payload.item?.author?.trim();
+  if (author) details.push(author);
   const publishedAt = payload.item?.publishedAt;
   const publishedDate =
     publishedAt === null || publishedAt === undefined ? null : new Date(publishedAt);
-  const date =
-    publishedDate === null || !Number.isFinite(publishedDate.getTime())
-      ? "日期未提供"
-      : new Intl.DateTimeFormat("zh-TW", {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          timeZone: "Asia/Taipei",
-        }).format(publishedDate);
-  return `${author} · ${date}`;
+  if (publishedDate !== null && Number.isFinite(publishedDate.getTime())) {
+    details.push(
+      new Intl.DateTimeFormat("zh-TW", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: "Asia/Taipei",
+      }).format(publishedDate),
+    );
+  }
+  return details.join(" · ");
 }
 
 function telegramItemContent(payload: DeliveryPayload): string {
   if (
     (payload.subscription.adapter !== "telegram" &&
-      payload.subscription.adapter !== "telegram_html") ||
+      payload.subscription.adapter !== "telegram_html" &&
+      payload.subscription.adapter !== "email") ||
     !payload.item
   )
     return "";
@@ -144,12 +148,11 @@ export function renderTelegramMessage(payload: DeliveryPayload): string {
       payload.subscription.title?.trim() || redactSensitiveUrls(payload.subscription.sourceUrl),
       400,
     );
-    const publication = escapedWithin(publicationLine(payload), 350);
+    const publication = publicationLine(payload);
+    const publicationHtml = publication ? `<i>${escapedWithin(publication, 350)}</i>` : "";
     const content = telegramItemContent(payload);
     const tags = escapedWithin(itemTags(payload), 250);
-    return [`<b>拾跡 · ${source}</b>`, `<i>${publication}</i>`, content, tags]
-      .filter(Boolean)
-      .join("\n");
+    return [`<b>拾跡 · ${source}</b>`, publicationHtml, content, tags].filter(Boolean).join("\n");
   }
 
   const event = payload.failureEvent;

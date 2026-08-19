@@ -1,0 +1,16 @@
+{
+  "name": "curio-email-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.jsonc",
+    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "postal-mime": "3.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.123.0"
+  }
+}

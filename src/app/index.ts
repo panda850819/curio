@@ -17,6 +17,7 @@ export type {
   DeliveryService,
   DestinationService,
   DestinationVerification,
+  EmailInboxService,
   FollowInput,
   FollowResult,
   ProbeService,

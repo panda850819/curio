@@ -21,11 +21,19 @@ function harness(
       ),
     }),
   },
+  withEmail = false,
 ) {
   const database = new Database(":memory:", { strict: true });
   database.exec("PRAGMA foreign_keys = ON;");
   migrate(database, migrationsPath);
-  const app = createApp({ database, migrationsPath, probeClient });
+  const app = createApp({
+    database,
+    migrationsPath,
+    probeClient,
+    email: withEmail
+      ? { address: "reader@inbox.example.com", webhookSecret: "email-secret" }
+      : undefined,
+  });
   const ui = createUiHandler(app, { now: () => 1_000 });
   const http = createHttpHandler({ services: app.services, ui, log: () => undefined });
   return { app, database, ui, http };
@@ -63,13 +71,30 @@ describe("Curio Web UI", () => {
     expect(dashboard.status).toBe(200);
     const dashboardHtml = await dashboard.text();
     expect(dashboardHtml).toContain("Curio");
-    expect(dashboardHtml).toContain("你的好奇心索引");
+    expect(dashboardHtml).toContain("把值得讀的東西拉進來");
+    expect(dashboardHtml).toContain("PULL / READING COLLECTOR");
+    expect(dashboardHtml).toContain('class="curio-mark"');
+    expect(dashboardHtml).toContain("theme-color");
+    expect(dashboardHtml).not.toContain("你的好奇心索引");
     expect(dashboardHtml).not.toContain("TELEGRAM_BOT_TOKEN");
     expect(dashboardHtml).not.toContain("X_AUTH_TOKEN");
 
     const missing = await context.http(new Request("http://curio.test/does-not-exist"));
     expect(missing.status).toBe(404);
     expect(await missing.text()).toContain("找不到這個頁面");
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("shows the shared email inbox on the add subscription screen", async () => {
+    const context = harness(undefined, true);
+    const response = await context.ui(new Request("http://curio.test/subscriptions/new"));
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("共用電子報收件匣");
+    expect(html).toContain("reader@inbox.example.com");
+    expect(html).toContain("管理 Email Inbox");
 
     context.app.close();
     context.database.close();
@@ -237,10 +262,20 @@ describe("Curio Web UI", () => {
     expect(detail.status).toBe(200);
     const detailHtml = await detail.text();
     expect(detailHtml).toContain("來源健康度");
+    expect(detailHtml).toContain("來源分類");
+    expect(detailHtml).toContain("Feed 格式");
     expect(detailHtml).toContain("路由");
     expect(detailHtml).toContain("First finding");
     expect(detailHtml).toContain("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
     expect(detailHtml).not.toContain("<script>alert('x')</script>");
+
+    const subscriptions = await context.ui(
+      new Request("http://curio.test/subscriptions", { headers: { cookie: session.cookie } }),
+    );
+    const subscriptionsHtml = await subscriptions.text();
+    expect(subscriptionsHtml).toContain("網站");
+    expect(subscriptionsHtml).toContain("最近主題");
+    expect(subscriptionsHtml).toContain("First finding");
 
     const destinations = await context.ui(
       new Request("http://curio.test/destinations", { headers: { cookie: session.cookie } }),
@@ -250,6 +285,56 @@ describe("Curio Web UI", () => {
       new Request("http://curio.test/deliveries", { headers: { cookie: session.cookie } }),
     );
     expect(await deliveries.text()).toContain("投遞");
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("groups YouTube feeds separately and combines website feed formats", async () => {
+    const context = harness();
+    context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "atom",
+        sourceKey: "UCcurio123",
+        sourceUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCcurio123",
+        title: "商談・不廢話 | Real Biz Chat",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "rss",
+        sourceKey: "https://example.com/feed.xml",
+        sourceUrl: "https://example.com/feed.xml",
+        title: "Example RSS",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "atom",
+        sourceKey: "https://example.org/atom.xml",
+        sourceUrl: "https://example.org/atom.xml",
+        title: "Example Atom",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+
+    const response = await context.ui(new Request("http://curio.test/subscriptions"));
+    const html = await response.text();
+    expect(html).toContain('<span class="source-family">YouTube</span>');
+    expect(html).toContain('<span class="source-format">YouTube</span>');
+    expect(html).toContain('<span class="source-family">網站</span>');
+    expect(html).not.toContain("網站 Feed");
+    expect(html).not.toContain("網站 Atom");
+    expect(html).toContain('<span class="source-format">RSS</span>');
+    expect(html).toContain('<span class="source-format">Atom</span>');
 
     context.app.close();
     context.database.close();

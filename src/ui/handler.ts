@@ -5,6 +5,7 @@ import { DELIVERY_STATUSES } from "../delivery/types.ts";
 import type { DeliveryStatus, Item, NewRoute, Route, Subscription } from "../domain/types.ts";
 import type { SubscriptionCandidate } from "../probe/types.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "../security/redaction.ts";
+import { curioFaviconHref, curioMarkSvg } from "./brand.ts";
 
 const SESSION_TTL_MS = 8 * 60 * 60_000;
 const MAX_FORM_BODY_BYTES = 64 * 1024;
@@ -238,8 +239,83 @@ function adapterLabel(value: string): string {
       telegram_html: "Telegram HTML",
       github: "GitHub Releases",
       github_atom: "GitHub Atom",
+      email: "Email",
     }[value] ?? value
   );
+}
+
+interface SourcePresentation {
+  family: string;
+  role: string;
+  format: string;
+  name: string;
+  topic: string | null;
+}
+
+function sourcePresentation(subscription: Subscription, latestItem?: Item): SourcePresentation {
+  let hostname = "";
+  let pathname = "";
+  try {
+    const url = new URL(subscription.sourceUrl);
+    hostname = url.hostname.toLowerCase().replace(/^www\\./u, "");
+    pathname = url.pathname.toLowerCase();
+  } catch {
+    // The source URL has already passed source validation; retain a safe fallback for display.
+  }
+
+  const isEmail = subscription.adapter === "email";
+  const isSubstack = hostname.endsWith(".substack.com");
+  const isYoutube =
+    subscription.adapter === "youtube" ||
+    hostname === "youtube.com" ||
+    hostname === "www.youtube.com" ||
+    hostname === "m.youtube.com";
+  const family = isEmail
+    ? "Email"
+    : subscription.adapter === "x" || hostname === "x.com" || hostname === "twitter.com"
+      ? "X"
+      : subscription.adapter === "telegram" || subscription.adapter === "telegram_html"
+        ? "Telegram"
+        : isSubstack
+          ? "Substack"
+          : isYoutube
+            ? "YouTube"
+            : subscription.adapter === "github" || subscription.adapter === "github_atom"
+              ? "GitHub"
+              : subscription.adapter === "html"
+                ? "網站頁面"
+                : subscription.adapter === "rss"
+                  ? "網站"
+                  : adapterLabel(subscription.adapter);
+  const role =
+    family === "Email"
+      ? "共用收件匣"
+      : family === "X"
+        ? "人物動態"
+        : family === "Telegram" || family === "YouTube"
+          ? "頻道"
+          : family === "Substack"
+            ? "出版物"
+            : family === "網站頁面"
+              ? "頁面監測"
+              : "來源";
+  const format = isEmail
+    ? "Email"
+    : isYoutube
+      ? "YouTube"
+      : subscription.adapter === "rss"
+        ? pathname.includes("atom")
+          ? "Atom"
+          : "RSS"
+        : adapterLabel(subscription.adapter);
+  const fallbackName = isEmail ? "Email Inbox" : hostname || subscription.sourceUrl;
+  return {
+    family,
+    role,
+    format,
+    name: subscription.title?.trim() || latestItem?.author?.trim() || fallbackName,
+    topic: latestItem?.title?.trim() || null,
+  };
 }
 
 function statusPill(status: string, label = status): string {
@@ -271,7 +347,7 @@ function pollAction(
   className: string,
   label: string,
 ): string {
-  return subscription.adapter === "telegram"
+  return subscription.adapter === "telegram" || subscription.adapter === "email"
     ? ""
     : actionForm(`/subscriptions/${encodeURIComponent(id)}/poll`, session, label, { className });
 }
@@ -279,7 +355,7 @@ function pollAction(
 function scheduleLabel(
   subscription: Pick<Subscription, "adapter" | "pollIntervalMinutes">,
 ): string {
-  return subscription.adapter === "telegram"
+  return subscription.adapter === "telegram" || subscription.adapter === "email"
     ? "事件驅動"
     : `每 ${formatNumber(subscription.pollIntervalMinutes)} 分鐘`;
 }
@@ -289,7 +365,7 @@ function heading(eyebrow: string, title: string, lede: string, actions = ""): st
 }
 
 function emptyState(title: string, message: string, action = ""): string {
-  return `<div class="empty-state"><span class="empty-mark" aria-hidden="true">○</span><h2>${buttonLabel(title)}</h2><p>${buttonLabel(message)}</p>${action}</div>`;
+  return `<div class="empty-state"><span class="empty-mark" aria-hidden="true">${curioMarkSvg()}</span><h2>${buttonLabel(title)}</h2><p>${buttonLabel(message)}</p>${action}</div>`;
 }
 
 function renderShell(
@@ -320,7 +396,9 @@ function renderShell(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
+<meta name="theme-color" content="#11161b">
 <meta name="description" content="Curio 單一使用者資訊足跡">
+<link rel="icon" type="image/svg+xml" href="${curioFaviconHref()}">
 <title>${buttonLabel(title)} · Curio</title>
 <style>${STYLES}</style>
 </head>
@@ -328,7 +406,7 @@ function renderShell(
 <a class="skip-link" href="#main-content">跳到主要內容</a>
 <div class="app-shell">
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Curio 首頁"><span class="brand-mark" aria-hidden="true">✳</span><span><strong>Curio</strong><small>好奇足跡的田野筆記</small></span></a>
+    <a class="brand" href="/" aria-label="Curio 首頁"><span class="brand-mark">${curioMarkSvg()}</span><span><strong>curio</strong><small>拾起值得讀的訊號</small></span></a>
     <nav class="primary-nav" aria-label="主要導覽">${navHtml}</nav>
     <span class="environment-label">單一使用者／本機</span>
   </header>
@@ -352,16 +430,16 @@ for (const form of document.querySelectorAll('form[data-loading]')) {
 
 const STYLES = `
 :root {
-  --ink: oklch(24% 0.035 145);
-  --ink-soft: oklch(42% 0.035 145);
+  --ink: oklch(23% 0.03 250);
+  --ink-soft: oklch(43% 0.03 250);
   --paper: oklch(96% 0.018 88);
   --paper-deep: oklch(92% 0.025 88);
   --paper-lift: oklch(99% 0.012 88);
-  --moss: oklch(45% 0.09 145);
-  --moss-dark: oklch(33% 0.065 145);
-  --brass: oklch(67% 0.12 76);
-  --rust: oklch(52% 0.12 35);
-  --line: oklch(76% 0.035 88);
+  --moss: oklch(63% 0.18 42);
+  --moss-dark: oklch(28% 0.035 250);
+  --brass: oklch(76% 0.16 73);
+  --rust: oklch(57% 0.18 38);
+  --line: oklch(78% 0.025 88);
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 22px;
@@ -397,8 +475,9 @@ button:disabled { cursor: wait; opacity: 0.6; }
 .app-shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
 .topbar { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 1.15rem 0 1rem; display: flex; align-items: center; gap: 1.5rem; border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 0.7rem; color: var(--ink); text-decoration: none; min-width: 14rem; }
-.brand-mark { display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border: 1px solid var(--brass); border-radius: 50%; color: var(--rust); font-size: 1.25rem; }
-.brand strong { display: block; font-family: "Iowan Old Style", Baskerville, "Songti TC", serif; font-size: 1.3rem; line-height: 1.1; letter-spacing: -0.012em; }
+.brand-mark { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; color: var(--ink); flex: none; }
+.brand-mark .curio-mark { display: block; width: 100%; height: 100%; }
+.brand strong { display: block; font-family: Arial, Helvetica, sans-serif; font-size: 1.45rem; line-height: 1; font-weight: 700; letter-spacing: -0.07em; }
 .brand small { display: block; color: var(--ink-soft); font-size: 0.68rem; line-height: 1.2; letter-spacing: 0.04em; }
 .primary-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
 .primary-nav a { padding: 0.45rem 0.65rem; color: var(--ink-soft); text-decoration: none; border-bottom: 2px solid transparent; font-size: 0.92rem; }
@@ -408,7 +487,7 @@ main { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 3rem 0 
 .page-heading { display: flex; justify-content: space-between; gap: 2rem; align-items: end; margin-bottom: 2.3rem; }
 .page-heading h1 { margin: 0.25rem 0 0.6rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", serif; font-size: clamp(2rem, 4vw, 3.6rem); line-height: 1.08; font-weight: 600; letter-spacing: -0.022em; text-wrap: balance; }
 .eyebrow { margin: 0; color: var(--rust); font-size: 0.76rem; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
-.lede { max-width: 62ch; margin: 0; color: var(--ink-soft); text-wrap: pretty; }
+.lede { max-width: 62ch; min-width: 0; margin: 0; color: var(--ink-soft); text-wrap: pretty; overflow-wrap: anywhere; word-break: break-word; }
 .page-actions, .button-row, .inline-form { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem; }
 .inline-form { display: inline-flex; }
 .flash { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1rem; margin-bottom: 1.5rem; border: 1px solid var(--line); background: var(--paper-lift); }
@@ -438,6 +517,18 @@ main { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 3rem 0 
 .record-row h3 { font-size: 0.98rem; line-height: 1.35; }
 .record-row p { color: var(--ink-soft); font-size: 0.82rem; overflow-wrap: anywhere; }
 .record-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem 0.85rem; color: var(--ink-soft); font-size: 0.8rem; }
+.source-groups { display: grid; gap: 1.5rem; }
+.source-group { display: grid; gap: 0.45rem; }
+.source-group-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; padding-bottom: 0.45rem; border-bottom: 2px solid var(--ink); }
+.source-group-heading h3 { margin: 0; font-family: "Iowan Old Style", Baskerville, "Songti TC", serif; font-size: 1.25rem; font-weight: 600; }
+.source-group-heading span { color: var(--ink-soft); font-size: 0.78rem; }
+.source-row { align-items: start; }
+.source-kicker { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 0.7rem; margin-bottom: 0.25rem; color: var(--ink-soft); font-size: 0.76rem; }
+.source-family { color: var(--rust); font-weight: 800; }
+.source-format { padding: 0.08rem 0.38rem; border: 1px solid var(--line); border-radius: 99px; font-size: 0.68rem; font-weight: 800; }
+.source-topic { display: flex; gap: 0.45rem; align-items: baseline; margin-top: 0.35rem !important; color: var(--ink); }
+.source-topic-label { color: var(--ink-soft); font-size: 0.74rem; white-space: nowrap; }
+.source-url { margin-top: 0.2rem !important; color: var(--ink-soft); font-size: 0.74rem !important; }
 .record-actions { display: flex; justify-content: end; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
 .record-actions .button, .record-actions .button-link { min-height: 2.25rem; padding: 0.35rem 0.65rem; font-size: 0.8rem; }
 .status { display: inline-flex; align-items: center; gap: 0.3rem; width: fit-content; padding: 0.12rem 0.48rem; border: 1px solid var(--line); border-radius: 99px; font-size: 0.72rem; font-weight: 800; line-height: 1.45; }
@@ -466,7 +557,16 @@ fieldset legend { margin-bottom: 0.45rem; font-size: 0.82rem; font-weight: 800; 
 .panel-error { display: grid; gap: 0.2rem; padding: 1rem; color: var(--rust); border: 1px dashed var(--rust); background: color-mix(in oklch, var(--paper), var(--rust) 5%); }
 .panel-error span { color: var(--ink-soft); font-size: 0.86rem; }
 .empty-state { padding: 3rem 1rem; text-align: center; border: 1px dashed var(--line); background: var(--paper-lift); }
-.empty-mark { display: block; color: var(--brass); font-size: 2.5rem; line-height: 1; }
+.empty-mark { display: grid; place-items: center; width: 3.2rem; height: 3.2rem; margin: 0 auto; color: var(--ink); line-height: 1; }
+.empty-mark .curio-mark { display: block; width: 100%; height: 100%; }
+.pull-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2rem; align-items: center; margin-bottom: 2.4rem; padding: clamp(1.4rem, 3vw, 2.3rem); color: var(--paper-lift); background: var(--moss-dark); border-radius: var(--radius-lg); overflow: hidden; }
+.pull-hero-copy { max-width: 48rem; }
+.pull-hero-label { margin: 0 0 0.65rem; color: var(--brass); font: 700 0.72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.14em; }
+.pull-hero h2 { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: clamp(1.55rem, 4vw, 3rem); line-height: 1; letter-spacing: -0.06em; font-weight: 700; }
+.pull-hero p:last-child { max-width: 42rem; margin: 0.9rem 0 0; color: oklch(85% 0.02 250); font-size: 0.9rem; line-height: 1.7; }
+.pull-hero-mark { display: grid; place-items: center; width: clamp(7rem, 16vw, 11rem); height: clamp(7rem, 16vw, 11rem); color: var(--paper-lift); }
+.pull-hero-mark .curio-mark { display: block; width: 100%; height: 100%; }
+
 .empty-state h2 { margin: 0.65rem 0 0.2rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", serif; font-weight: 600; }
 .empty-state p { max-width: 42ch; margin: 0 auto 1rem; color: var(--ink-soft); }
 .detail-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.65fr); gap: 2rem; align-items: start; }
@@ -502,6 +602,7 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
   .brand { min-width: 0; }
   .environment-label { font-size: 0.66rem; }
   .page-heading { display: grid; gap: 1rem; align-items: start; }
+  .page-heading > div { min-width: 0; }
   .page-heading h1 { font-size: 2.35rem; }
   .page-actions { justify-content: start; }
   .overview-strip { grid-template-columns: repeat(2, 1fr); }
@@ -511,6 +612,12 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
   .field-wide { grid-column: auto; }
   .record-row { grid-template-columns: 1fr; gap: 0.7rem; }
   .record-actions { justify-content: start; }
+  .toolbar { display: grid; grid-template-columns: 1fr; align-items: stretch; }
+  .toolbar .field, .toolbar .field-small { min-width: 0; width: 100%; }
+  .toolbar .button { justify-self: start; }
+  .source-row > div { min-width: 0; }
+  .source-topic { flex-wrap: wrap; }
+  .source-topic a { min-width: 0; overflow-wrap: anywhere; word-break: break-all; }
   .key-value { grid-template-columns: 1fr; gap: 0.1rem; }
   .key-value dd { margin-bottom: 0.5rem; }
   .footer { display: grid; }
@@ -558,12 +665,13 @@ function dashboardContent(app: CurioApplication, _session: UiSession): string {
             ),
           )
           .join("")}</div>`;
+  const pullHero = `<section class="pull-hero" aria-label="Curio PULL 品牌主張"><div class="pull-hero-copy"><p class="pull-hero-label">PULL / READING COLLECTOR</p><h2>把值得讀的東西拉進來。</h2><p>Curio 把分散來源中的內容拉進你的閱讀空間，留下可以回看的足跡。</p></div><div class="pull-hero-mark">${curioMarkSvg()}</div></section>`;
   return `${heading(
-    "書桌／今天",
-    "你的好奇心索引",
+    "PULL／今天",
+    "把值得讀的東西拉進來",
     "在同一張桌面上查看來源健康、投遞狀態與最近拾起的內容。",
     link("/subscriptions/new", "新增訂閱", "button"),
-  )}
+  )}${pullHero}
   <dl class="overview-strip" aria-label="Curio 健康摘要">
     <div class="metric"><dt>啟用中的來源</dt><dd>${formatNumber(active)}</dd><small>共 ${formatNumber(subscriptions.length)} 個追蹤來源</small></div>
     <div class="metric"><dt>有錯誤的訂閱</dt><dd>${formatNumber(failedSubscriptions.length)}</dd><small>輪詢健康度</small></div>
@@ -602,32 +710,82 @@ function subscriptionsContent(app: CurioApplication, session: UiSession, url: UR
   const query = url.searchParams.get("q")?.trim() ?? "";
   const filter = url.searchParams.get("status") ?? "all";
   let subscriptions = app.services.subscriptions.list(MAX_LIST_ITEMS);
-  if (query) {
-    const needle = query.toLocaleLowerCase("zh-TW");
-    subscriptions = subscriptions.filter((subscription) =>
-      [subscription.title ?? "", subscription.sourceUrl, subscription.adapter].some((value) =>
-        value.toLocaleLowerCase("zh-TW").includes(needle),
-      ),
-    );
-  }
   if (filter === "active")
     subscriptions = subscriptions.filter((subscription) => subscription.enabled);
   if (filter === "paused")
     subscriptions = subscriptions.filter((subscription) => !subscription.enabled);
-  const rows = subscriptions
-    .map(
-      (subscription) =>
-        `<article class="record-row"><div><h3><a href="/subscriptions/${encodeURIComponent(subscription.id)}">${displayText(subscription.title || subscription.sourceUrl, 160)}</a></h3><div class="record-meta">${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}<span>${adapterLabel(subscription.adapter)}</span><span>${scheduleLabel(subscription)}</span>${subscription.lastError ? `<span>${displayText(subscription.consecutiveFailures)} 次失敗</span>` : ""}</div><p>${displayUrl(subscription.sourceUrl)}</p></div><div class="record-actions">${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停" : "恢復", { className: "button-secondary" })}${pollAction(subscription, subscription.id, session, "button-secondary", "立即輪詢")}${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/remove`, session, "移除", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留在時間軸。" })}</div></article>`,
-    )
+
+  const latestBySubscription = new Map<string, Item | undefined>();
+  const presentationBySubscription = new Map<string, SourcePresentation>();
+  for (const subscription of subscriptions) {
+    const latest = app.services.subscriptions.listItemsPage(1, subscription.id).items[0];
+    latestBySubscription.set(subscription.id, latest);
+    presentationBySubscription.set(subscription.id, sourcePresentation(subscription, latest));
+  }
+  if (query) {
+    const needle = query.toLocaleLowerCase("zh-TW");
+    subscriptions = subscriptions.filter((subscription) => {
+      const presentation = presentationBySubscription.get(subscription.id);
+      return [
+        subscription.title ?? "",
+        subscription.sourceUrl,
+        subscription.adapter,
+        presentation?.family ?? "",
+        presentation?.role ?? "",
+        presentation?.name ?? "",
+        presentation?.topic ?? "",
+      ].some((value) => value.toLocaleLowerCase("zh-TW").includes(needle));
+    });
+  }
+
+  const groups = new Map<
+    string,
+    Array<{
+      subscription: Subscription;
+      latest: Item | undefined;
+      presentation: SourcePresentation;
+    }>
+  >();
+  for (const subscription of subscriptions) {
+    const presentation = presentationBySubscription.get(subscription.id) as SourcePresentation;
+    const group = groups.get(presentation.family) ?? [];
+    group.push({
+      subscription,
+      latest: latestBySubscription.get(subscription.id),
+      presentation,
+    });
+    groups.set(presentation.family, group);
+  }
+
+  const groupedRows = [...groups.entries()]
+    .map(([family, entries]) => {
+      const rows = entries
+        .map(({ subscription, latest, presentation }) => {
+          const topicHref = latest?.url ? safeExternalHref(latest.url) : null;
+          const topic = presentation.topic
+            ? topicHref
+              ? `<a href="${topicHref}" target="_blank" rel="noreferrer">${displayText(presentation.topic, 150)}</a>`
+              : displayText(presentation.topic, 150)
+            : "尚未取得主題";
+          const sourceLocator =
+            subscription.adapter === "email"
+              ? escapeHtml(app.emailSource?.address ?? "Email Inbox")
+              : displayUrl(subscription.sourceUrl);
+          return `<article class="record-row source-row"><div><div class="source-kicker"><span class="source-family">${displayText(presentation.family, 60)}</span><span>${displayText(presentation.role, 60)}</span><span class="source-format">${displayText(presentation.format, 30)}</span>${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}<span>${scheduleLabel(subscription)}</span>${subscription.lastError ? `<span>${displayText(subscription.consecutiveFailures)} 次失敗</span>` : ""}</div><h3><a href="/subscriptions/${encodeURIComponent(subscription.id)}">${displayText(presentation.name, 160)}</a></h3><p class="source-topic"><span class="source-topic-label">最近主題</span>${topic}</p><p class="source-url">${sourceLocator}</p></div><div class="record-actions">${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停" : "恢復", { className: "button-secondary" })}${pollAction(subscription, subscription.id, session, "button-secondary", "立即輪詢")}${actionForm(`/subscriptions/${encodeURIComponent(subscription.id)}/remove`, session, "移除", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留在時間軸。" })}</div></article>`;
+        })
+        .join("");
+      return `<section class="source-group" aria-labelledby="source-group-${escapeHtml(family)}"><div class="source-group-heading"><h3 id="source-group-${escapeHtml(family)}">${displayText(family, 60)}</h3><span>${formatNumber(entries.length)} 個來源</span></div><div class="record-list">${rows}</div></section>`;
+    })
     .join("");
+
   return `${heading(
     "來源／索引",
     "訂閱",
-    "搜尋、暫停、手動輪詢，或查看來源的完整健康紀錄。",
+    "依類型整理來源名稱與最近主題。",
     link("/subscriptions/new", "新增訂閱", "button"),
   )}
-  <form class="toolbar" method="get" action="/subscriptions"><div class="field"><label for="subscription-search">搜尋來源</label><input id="subscription-search" name="q" value="${escapeHtml(query)}" placeholder="標題、URL、來源類型"></div><div class="field field-small"><label for="subscription-status">篩選</label><select id="subscription-status" name="status"><option value="all"${filter === "all" ? " selected" : ""}>全部</option><option value="active"${filter === "active" ? " selected" : ""}>啟用中</option><option value="paused"${filter === "paused" ? " selected" : ""}>已暫停</option></select></div><button class="button" type="submit">套用</button></form>
-  <section class="panel" aria-labelledby="subscription-list-heading"><div class="section-title"><h2 id="subscription-list-heading">${formatNumber(subscriptions.length)} 個來源</h2><span class="panel-note">依建立時間排序</span></div>${subscriptions.length === 0 ? emptyState(query || filter !== "all" ? "沒有符合的來源" : "還沒有訂閱", query || filter !== "all" ? "換一個搜尋字詞或清除篩選。" : "從一個 URL 開始建立追蹤。", link("/subscriptions/new", "新增訂閱")) : `<div class="record-list">${rows}</div>`}</section>`;
+  <form class="toolbar" method="get" action="/subscriptions"><div class="field"><label for="subscription-search">搜尋來源</label><input id="subscription-search" name="q" value="${escapeHtml(query)}" placeholder="名稱、主題、URL、來源類型"></div><div class="field field-small"><label for="subscription-status">篩選</label><select id="subscription-status" name="status"><option value="all"${filter === "all" ? " selected" : ""}>全部</option><option value="active"${filter === "active" ? " selected" : ""}>啟用中</option><option value="paused"${filter === "paused" ? " selected" : ""}>已暫停</option></select></div><button class="button" type="submit">套用</button></form>
+  <section class="panel" aria-labelledby="subscription-list-heading"><div class="section-title"><h2 id="subscription-list-heading">${formatNumber(subscriptions.length)} 個來源</h2><span class="panel-note">依來源類型分組</span></div>${subscriptions.length === 0 ? emptyState(query || filter !== "all" ? "沒有符合的來源" : "還沒有訂閱", query || filter !== "all" ? "換一個搜尋字詞或清除篩選。" : "從一個 URL 開始建立追蹤。", link("/subscriptions/new", "新增訂閱")) : `<div class="source-groups">${groupedRows}</div>`}</section>`;
 }
 
 function newSubscriptionContent(
@@ -641,6 +799,10 @@ function newSubscriptionContent(
     .items.filter((destination) => destination.enabled);
   const candidates = candidateView?.result.candidates ?? [];
   const selected = candidateView?.selectedUrl ?? candidates[0]?.sourceUrl ?? "";
+  const emailInbox = app.emailSource?.getInbox();
+  const emailInboxPanel = emailInbox
+    ? `<section class="panel"><div class="section-title"><h2>共用電子報收件匣</h2><span class="panel-note">事件驅動</span></div><p class="panel-note">把這個地址填到電子報訂閱表單，或將既有電子報轉寄到這裡。所有信件會進入同一條 Curio 時間軸。</p><p class="code-note">${escapeHtml(emailInbox.address)}</p><div class="button-row" style="margin-top:1rem">${link(`/subscriptions/${encodeURIComponent(emailInbox.subscription.id)}`, "管理 Email Inbox", "button-secondary")}</div></section>`
+    : "";
   const warningHtml = candidateView?.result.warnings.length
     ? `<div class="notice-list" role="status"><strong>探測完成，但有備註</strong>${candidateView.result.warnings.map((warning) => `<span>• ${displayText(warning.message, 180)}</span>`).join("")}</div>`
     : "";
@@ -656,9 +818,10 @@ function newSubscriptionContent(
         `<option value="${escapeHtml(destination.id)}"${index === 0 ? " selected" : ""}>${displayText(destination.destinationKey, 100)}</option>`,
     )
     .join("");
-  return `${heading("新足跡", "新增訂閱", "探測公開 URL，選擇 Curio 可以追蹤的來源，再將它連到投遞目的地。", link("/subscriptions", "返回訂閱", "button-secondary"))}
+  return `${heading("新足跡", "新增訂閱", "探測公開 URL，或使用共用電子報收件匣，把值得讀的內容拉進 Curio。", link("/subscriptions", "返回訂閱", "button-secondary"))}
   ${error ? `<div class="flash flash-error" role="alert"><span aria-hidden="true">!</span>${buttonLabel(error)}</div>` : ""}
   <section class="panel"><form method="post" action="/subscriptions/probe" data-loading>${csrfField(session)}<div class="field field-wide"><label for="probe-url">公開 URL</label><input id="probe-url" name="url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/feed.xml" value="${escapeHtml(candidateView?.result.inputUrl ?? "")}"${error ? ' aria-invalid="true" aria-describedby="probe-url-error"' : ""} required><span class="field-hint">Curio 會阻擋含帳密的 URL 與私人網路目標。</span>${error ? `<span class="field-error" id="probe-url-error">${buttonLabel(error)}</span>` : ""}</div><div class="button-row" style="margin-top:1rem"><button class="button" type="submit">探測 URL</button></div></form></section>
+  ${emailInboxPanel}
   ${candidates.length === 0 ? `${warningHtml}<section class="panel"><div class="section-title"><h2>下一步</h2></div><p class="panel-note">執行探測後查看可用的來源候選。確認最後的路由前，不會寫入任何資料。</p></section>` : `${warningHtml}<section class="panel"><form method="post" action="/subscriptions/create" data-loading>${csrfField(session)}<fieldset><legend>選擇來源候選</legend><div class="radio-grid">${candidateOptions}</div></fieldset><div class="form-grid" style="margin-top:1.25rem"><div class="field"><label for="destination-id">投遞目的地</label>${destinations.length === 0 ? `<p class="field-hint">沒有啟用中的投遞目的地。${link("/destinations", "請先建立一個")}</p>` : `<select id="destination-id" name="destinationId" required>${destinationOptions}</select>`}</div><div class="field"><label for="poll-interval">輪詢間隔</label><select id="poll-interval" name="intervalMinutes"><option value="60">每 60 分鐘</option><option value="360">每 6 小時</option><option value="1440">每天</option></select></div><div class="field"><label for="backfill-limit">初始回填</label><select id="backfill-limit" name="backfillLimit"><option value="0">不回填較舊內容</option><option value="20" selected>最近 20 筆</option><option value="50">最近 50 筆</option></select><span class="field-hint">只會驗證並寫入選取的來源。</span></div><div class="field field-wide"><label for="html-selector">HTML selector <span class="field-hint">選填</span></label><input id="html-selector" name="selector" placeholder="main article, .content"><span class="field-hint">HTML 監測會使用；feed 訂閱會忽略。</span></div><label class="radio-option field-wide"><input type="checkbox" name="notifyOnFirstPoll" value="true"><span><strong>第一次 HTML 輪詢時通知</strong><span>預設關閉：第一次輪詢只建立靜默基準。</span></span></label></div>${destinations.length === 0 ? "" : `<div class="button-row" style="margin-top:1.25rem"><button class="button" type="submit">建立訂閱與路由</button></div>`}</form></section>`}`;
 }
 
@@ -674,6 +837,7 @@ function subscriptionDetailContent(
     id,
     decodeCursor(url.searchParams.get("itemsCursor")),
   );
+  const presentation = sourcePresentation(subscription, itemPage.items[0]);
   const routes = app.services.routes.listPage(MAX_LIST_ITEMS, id).items;
   const destinations = app.services.destinations.listPage(MAX_LIST_ITEMS).items;
   const destinationMap = new Map(destinations.map((destination) => [destination.id, destination]));
@@ -700,8 +864,17 @@ function subscriptionDetailContent(
   const healthError = subscription.lastError
     ? `<div class="panel-error" role="alert"><strong>上次輪詢錯誤</strong><span>${displayText(subscription.lastError, 600)}</span></div>`
     : "";
-  return `${heading("來源／詳情", truncate(subscription.title || subscription.sourceUrl, 100), "查看這個來源的健康狀態、路由目的地與最新內容。", `${actionForm(`/subscriptions/${encodeURIComponent(id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停來源" : "恢復來源", { className: "button-secondary" })}${pollAction(subscription, id, session, "button", "立即輪詢")}`)}
-  <div class="detail-layout"><div class="stack"><section class="panel"><div class="section-title"><h2>來源健康度</h2>${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}</div>${healthError}<dl class="key-value"><dt>來源 URL</dt><dd>${displayUrl(subscription.sourceUrl)}</dd><dt>來源類型</dt><dd>${adapterLabel(subscription.adapter)}</dd><dt>運作方式</dt><dd>${scheduleLabel(subscription)}</dd><dt>上次輪詢</dt><dd>${formatDate(subscription.lastPolledAt)}</dd><dt>上次成功</dt><dd>${formatDate(subscription.lastSuccessAt)}</dd><dt>下次輪詢</dt><dd>${formatDate(subscription.nextPollAt)}</dd><dt>失敗次數</dt><dd>${formatNumber(subscription.consecutiveFailures)}</dd></dl></section><section class="panel"><div class="section-title"><h2>最近內容</h2><span class="panel-note">${formatNumber(itemPage.items.length)} 筆</span></div>${itemRows || emptyState("還沒有內容", "下一次成功的輪詢會將新內容放進時間軸。")}${nextItems ? `<div class="button-row" style="margin-top:1rem">${nextItems}</div>` : ""}</section></div><aside class="stack"><section class="panel"><div class="section-title"><h2>路由</h2><span class="panel-note">${formatNumber(routes.length)} 條</span></div>${routeRows || `<p class="panel-note">還沒有路由。請在下方新增投遞目的地。</p>`}${availableDestinations.length === 0 ? "" : `<form class="stack" style="margin-top:1rem" method="post" action="/routes/create" data-loading>${csrfField(session)}<input type="hidden" name="subscriptionId" value="${escapeHtml(subscription.id)}"><div class="field"><label for="route-destination">新增目的地</label><select id="route-destination" name="destinationId">${availableDestinations.map((destination) => `<option value="${escapeHtml(destination.id)}">${displayText(destination.destinationKey, 100)}</option>`).join("")}</select></div><button class="button" type="submit">新增路由</button></form>`}</section><section class="panel"><h2 class="panel-title">危險區域</h2><p class="panel-note">移除來源會保留已收集的內容，但不會再出現在啟用中的清單。</p>${actionForm(`/subscriptions/${encodeURIComponent(id)}/remove`, session, "移除訂閱", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留。" })}</section></aside></div>`;
+  const sourceLocatorLabel = subscription.adapter === "email" ? "收件地址" : "來源 URL";
+  const sourceLocator =
+    subscription.adapter === "email"
+      ? escapeHtml(app.emailSource?.address ?? "Email Inbox")
+      : displayUrl(subscription.sourceUrl);
+  const emptyItems =
+    subscription.adapter === "email"
+      ? emptyState("還沒有電子報", "將電子報填入或轉寄到共用收件地址後，內容會出現在這裡。")
+      : emptyState("還沒有內容", "下一次成功的輪詢會將新內容放進時間軸。");
+  return `${heading("來源／詳情", truncate(presentation.name, 100), "查看這個來源的健康狀態、路由目的地與最新內容。", `${actionForm(`/subscriptions/${encodeURIComponent(id)}/${subscription.enabled ? "pause" : "resume"}`, session, subscription.enabled ? "暫停來源" : "恢復來源", { className: "button-secondary" })}${pollAction(subscription, id, session, "button", "立即輪詢")}`)}
+  <div class="detail-layout"><div class="stack"><section class="panel"><div class="section-title"><h2>來源健康度</h2>${statusPill(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "active" : "paused")}</div>${healthError}<dl class="key-value"><dt>顯示名稱</dt><dd>${displayText(presentation.name, 240)}</dd><dt>來源分類</dt><dd>${displayText(presentation.family, 80)} · ${displayText(presentation.role, 80)}</dd><dt>Feed 格式</dt><dd>${displayText(presentation.format, 40)}</dd><dt>最近主題</dt><dd>${displayText(presentation.topic || "尚未取得主題", 240)}</dd><dt>${sourceLocatorLabel}</dt><dd>${sourceLocator}</dd><dt>運作方式</dt><dd>${scheduleLabel(subscription)}</dd><dt>上次輪詢</dt><dd>${formatDate(subscription.lastPolledAt)}</dd><dt>上次成功</dt><dd>${formatDate(subscription.lastSuccessAt)}</dd><dt>下次輪詢</dt><dd>${formatDate(subscription.nextPollAt)}</dd><dt>失敗次數</dt><dd>${formatNumber(subscription.consecutiveFailures)}</dd></dl></section><section class="panel"><div class="section-title"><h2>最近內容</h2><span class="panel-note">${formatNumber(itemPage.items.length)} 筆</span></div>${itemRows || emptyItems}${nextItems ? `<div class="button-row" style="margin-top:1rem">${nextItems}</div>` : ""}</section></div><aside class="stack"><section class="panel"><div class="section-title"><h2>路由</h2><span class="panel-note">${formatNumber(routes.length)} 條</span></div>${routeRows || `<p class="panel-note">還沒有路由。請在下方新增投遞目的地。</p>`}${availableDestinations.length === 0 ? "" : `<form class="stack" style="margin-top:1rem" method="post" action="/routes/create" data-loading>${csrfField(session)}<input type="hidden" name="subscriptionId" value="${escapeHtml(subscription.id)}"><div class="field"><label for="route-destination">新增目的地</label><select id="route-destination" name="destinationId">${availableDestinations.map((destination) => `<option value="${escapeHtml(destination.id)}">${displayText(destination.destinationKey, 100)}</option>`).join("")}</select></div><button class="button" type="submit">新增路由</button></form>`}</section><section class="panel"><h2 class="panel-title">危險區域</h2><p class="panel-note">移除來源會保留已收集的內容，但不會再出現在啟用中的清單。</p>${actionForm(`/subscriptions/${encodeURIComponent(id)}/remove`, session, "移除訂閱", { kind: "danger", confirm: "要移除這個訂閱嗎？已收集的內容仍會保留。" })}</section></aside></div>`;
 }
 
 function destinationsContent(app: CurioApplication, session: UiSession): string {

@@ -8,6 +8,7 @@ describe("loadConfig", () => {
       port: 3000,
       databasePath: "./data/curio.db",
       telegram: null,
+      email: null,
       x: null,
     });
   });
@@ -21,6 +22,21 @@ describe("loadConfig", () => {
     });
     expect(() => loadConfig({ TELEGRAM_BOT_TOKEN: "token" })).toThrow("configured together");
     expect(() => loadConfig({ TELEGRAM_CHAT_ID: "@channel" })).toThrow("configured together");
+  });
+
+  test("loads the shared email inbox only when address and webhook secret are configured", () => {
+    expect(
+      loadConfig({
+        EMAIL_INBOUND_ADDRESS: "Reader@Inbox.Example.com",
+        EMAIL_INBOUND_WEBHOOK_SECRET: "email-secret",
+      }).email,
+    ).toEqual({ address: "reader@inbox.example.com", webhookSecret: "email-secret" });
+    expect(() => loadConfig({ EMAIL_INBOUND_ADDRESS: "reader@example.com" })).toThrow(
+      "configured together",
+    );
+    expect(() => loadConfig({ EMAIL_INBOUND_WEBHOOK_SECRET: "email-secret" })).toThrow(
+      "configured together",
+    );
   });
 
   test("loads X only when both cookie values are configured", () => {

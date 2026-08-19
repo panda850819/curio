@@ -25,12 +25,36 @@ function readCursor(subscription: Subscription): RssCursor {
 
   const etag = subscription.cursor.etag;
   const lastModified = subscription.cursor.lastModified;
+  const baselineExternalIds = subscription.cursor.baselineExternalIds;
+  const baselinePending = subscription.cursor.baselinePending;
   if (etag !== undefined && typeof etag !== "string")
     throw new Error("RSS cursor etag must be a string");
   if (lastModified !== undefined && typeof lastModified !== "string") {
     throw new Error("RSS cursor lastModified must be a string");
   }
-  return { etag, lastModified };
+  const baselineIds = Array.isArray(baselineExternalIds)
+    ? baselineExternalIds.filter(
+        (externalId): externalId is string =>
+          typeof externalId === "string" && externalId.length > 0,
+      )
+    : null;
+  if (
+    baselineExternalIds !== undefined &&
+    (!Array.isArray(baselineExternalIds) ||
+      baselineIds === null ||
+      baselineIds.length !== baselineExternalIds.length)
+  ) {
+    throw new Error("RSS cursor baselineExternalIds must be a string array");
+  }
+  if (baselinePending !== undefined && typeof baselinePending !== "boolean") {
+    throw new Error("RSS cursor baselinePending must be a boolean");
+  }
+  return {
+    etag,
+    lastModified,
+    baselineExternalIds: baselineIds === null ? undefined : [...new Set(baselineIds)],
+    baselinePending,
+  };
 }
 
 function readBackfillLimit(subscription: Subscription): number {
@@ -107,14 +131,37 @@ function updatedCursor(
   return {
     etag: etag ?? (preserveMissing ? current.etag : undefined),
     lastModified: lastModified ?? (preserveMissing ? current.lastModified : undefined),
+    baselineExternalIds: current.baselineExternalIds,
+    baselinePending: current.baselinePending,
   };
 }
 
-function cursorJson(cursor: RssCursor): Record<string, string> {
-  const value: Record<string, string> = {};
+function cursorJson(cursor: RssCursor): Record<string, string | string[] | boolean> {
+  const value: Record<string, string | string[] | boolean> = {};
   if (cursor.etag !== undefined) value.etag = cursor.etag;
   if (cursor.lastModified !== undefined) value.lastModified = cursor.lastModified;
+  if (cursor.baselineExternalIds !== undefined) {
+    value.baselineExternalIds = cursor.baselineExternalIds;
+  }
+  if (cursor.baselinePending === true) value.baselinePending = true;
   return value;
+}
+
+function baselineExternalIds(entries: NormalizedFeedEntry[]): string[] {
+  return [...new Set(entries.map((entry) => entry.item.externalId))];
+}
+
+function legacyDeliveryExternalIds(
+  entries: NormalizedFeedEntry[],
+  baselineCutoff: number,
+): string[] {
+  return entries
+    .filter((entry) => {
+      // Some feeds reuse one feed-level updated timestamp for every entry.
+      const observedAt = entry.item.publishedAt;
+      return observedAt !== null && observedAt !== undefined && observedAt > baselineCutoff;
+    })
+    .map((entry) => entry.item.externalId);
 }
 
 function firstBackfill(entries: NormalizedFeedEntry[], limit: number): NormalizedFeedEntry[] {
@@ -157,9 +204,11 @@ export class RssSourceAdapter {
     const nextPollAt = polledAt + subscription.pollIntervalMinutes * 60_000;
     try {
       const cursor = readCursor(subscription);
-      const backfillLimit = subscription.cursor === null ? readBackfillLimit(subscription) : null;
+      const initialPoll = subscription.cursor === null || cursor.baselinePending === true;
+      const backfillLimit = initialPoll ? readBackfillLimit(subscription) : null;
       const initialDeliveryLimit =
         backfillLimit === null ? null : readInitialDeliveryLimit(subscription, backfillLimit);
+      const needsBaseline = cursor.baselineExternalIds === undefined;
       const response = await this.client.get(
         subscription.sourceUrl,
         () => FEED_LIMIT,
@@ -174,6 +223,7 @@ export class RssSourceAdapter {
       );
 
       if (response.status === 304) {
+        if (initialPoll) nextCursor.baselinePending = true;
         const result = this.items.recordPoll({
           subscriptionId,
           items: [],
@@ -192,23 +242,40 @@ export class RssSourceAdapter {
 
       const normalized = normalizeFeed(decoder.decode(response.body), response.url);
       warnings.push(...normalized.warnings);
-      const selected =
-        backfillLimit === null
+      if (!subscription.title?.trim() && normalized.title !== null) {
+        this.subscriptions.setTitleIfEmpty(subscriptionId, normalized.title);
+      }
+      const nextCursorWithBaseline = needsBaseline
+        ? {
+            ...nextCursor,
+            baselineExternalIds: baselineExternalIds(normalized.entries),
+            baselinePending: undefined,
+          }
+        : nextCursor;
+      const selected = initialPoll
+        ? firstBackfill(normalized.entries, backfillLimit ?? 0)
+        : needsBaseline
           ? normalized.entries
-          : firstBackfill(normalized.entries, backfillLimit);
+          : normalized.entries.filter(
+              (entry) => !cursor.baselineExternalIds?.includes(entry.item.externalId),
+            );
       const result = this.items.recordPoll({
         subscriptionId,
         items: selected.map((entry) => entry.item),
-        cursor: cursorJson(nextCursor),
+        cursor: cursorJson(nextCursorWithBaseline),
         polledAt,
         nextPollAt,
-        deliveryExternalIds:
-          initialDeliveryLimit === null
-            ? undefined
-            : selected.slice(0, initialDeliveryLimit).map((entry) => entry.item.externalId),
+        deliveryExternalIds: initialPoll
+          ? selected.slice(0, initialDeliveryLimit ?? 0).map((entry) => entry.item.externalId)
+          : needsBaseline
+            ? legacyDeliveryExternalIds(
+                normalized.entries,
+                subscription.lastSuccessAt ?? subscription.createdAt,
+              )
+            : undefined,
       });
 
-      return { status: "fetched", ...result, warnings, cursor: nextCursor };
+      return { status: "fetched", ...result, warnings, cursor: nextCursorWithBaseline };
     } catch (error) {
       this.subscriptions.recordFailure(subscriptionId, sanitizeErrorMessage(error), polledAt);
       throw error;

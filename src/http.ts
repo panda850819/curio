@@ -1,3 +1,4 @@
+import { AGENT_MANIFEST } from "./agent/manifest.ts";
 import { AppError, statusForAppError, toAppError } from "./app/errors.ts";
 import { decodeCursor } from "./app/pagination.ts";
 import type { ApplicationServices } from "./app/types.ts";
@@ -13,6 +14,7 @@ import type {
 } from "./domain/types.ts";
 import type { SubscriptionCandidate } from "./probe/types.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "./security/redaction.ts";
+import type { EmailWebhookHandler } from "./sources/email/index.ts";
 import { isValidUiPath, type UiHandler } from "./ui/handler.ts";
 
 const MAX_JSON_BODY_BYTES = 64 * 1024;
@@ -35,6 +37,7 @@ export type HttpAuthGuard = (request: Request) => void | Promise<void>;
 export interface HttpDependencies {
   services?: ApplicationServices;
   telegramWebhook?: TelegramWebhookHandler;
+  emailWebhook?: EmailWebhookHandler;
   ui?: UiHandler;
   authGuard?: HttpAuthGuard;
   startedAt?: number;
@@ -362,6 +365,24 @@ async function handleApiRequest(
   const id = segments[3] === undefined ? undefined : decodeSegment(segments[3]);
   const action = segments[4];
 
+  if (resource === "agent" && segments.length === 4 && segments[3] === "manifest") {
+    if (request.method !== "GET") methodNotAllowed();
+    return successResponse(AGENT_MANIFEST);
+  }
+
+  if (resource === "email" && id === "inbox" && segments.length === 4) {
+    if (request.method !== "GET") methodNotAllowed();
+    const inbox = services.email.get();
+    if (!inbox) {
+      throw new AppError(
+        "not_found",
+        "email_inbox_not_configured",
+        "Email inbox is not configured",
+      );
+    }
+    return successResponse(inbox);
+  }
+
   if (resource === "probes" && segments.length === 3) {
     if (request.method !== "POST") methodNotAllowed();
     const body = await readJsonBody(request);
@@ -541,6 +562,7 @@ async function dispatchWithServices(
   request: Request,
   services: ApplicationServices | undefined,
   telegramWebhook: TelegramWebhookHandler | undefined,
+  emailWebhook: EmailWebhookHandler | undefined,
   ui: UiHandler | undefined,
   authGuard: HttpAuthGuard | undefined,
   startedAt: number,
@@ -548,13 +570,15 @@ async function dispatchWithServices(
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
   if (pathname === "/telegram/webhook" && telegramWebhook) return telegramWebhook(request);
+  if (pathname === "/email/inbound" && emailWebhook) return emailWebhook(request);
   if (authGuard) await authGuard(request);
   const uiRequest =
     ui &&
     (isValidUiPath(pathname) ||
       (!pathname.startsWith("/api/") &&
         pathname !== "/health" &&
-        pathname !== "/telegram/webhook"));
+        pathname !== "/telegram/webhook" &&
+        pathname !== "/email/inbound"));
   if (uiRequest) return ui(request);
   if (pathname === "/health") return routeRequest(request, startedAt, now);
   if (!services) return routeRequest(request, startedAt, now);
@@ -578,12 +602,14 @@ export function createHttpHandler(dependencies: HttpDependencies = {}): HttpHand
       result =
         dependencies.services ||
         dependencies.telegramWebhook ||
+        dependencies.emailWebhook ||
         dependencies.ui ||
         dependencies.authGuard
           ? dispatchWithServices(
               request,
               dependencies.services,
               dependencies.telegramWebhook,
+              dependencies.emailWebhook,
               dependencies.ui,
               dependencies.authGuard,
               startedAt,

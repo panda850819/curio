@@ -2,7 +2,7 @@
 
 > 拾起偶然的興趣，留下好奇的軌跡。
 >
-> Collect curiosities. Trace your path.
+> Pull what matters into your reading space.
 
 Curio 是一個個人使用、以訂閱為核心的資訊收集與轉發服務。
 
@@ -44,6 +44,10 @@ RSS 是可選的輸入與輸出格式，不是內部必經格式。內部以資�
 
 Curio 內建 same-origin、server-rendered 管理介面，入口是 `/`。可完成 subscription、destination、route 與 delivery failure 的日常操作；mutation 受 `HttpOnly; Secure; SameSite=Lax` session 與 CSRF token 保護。
 
+## Agent 操作介面
+
+Curio 提供 `GET /api/v1/agent/manifest`，回傳 agent 可讀的操作清單與安全契約。`skills/curio/SKILL.md` 定義 probe、訂閱、路由、輪詢與驗證的標準工作流。Agent 應優先使用 manifest 與 JSON API，不直接讀取 SQLite，也不接觸 runtime secrets。
+
 ## Telegram 控制面
 
 設定 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET` 與 `TELEGRAM_ALLOWED_USER_IDS` 後，Curio 會提供 `POST /telegram/webhook`。可選的 `TELEGRAM_ALLOWED_CHAT_IDS` 會再限制 chat。
@@ -55,6 +59,12 @@ TELEGRAM_WEBHOOK_URL=https://example.com/telegram/webhook bun run telegram:webho
 ```
 
 Webhook 會接收 `message`、`callback_query`、`channel_post` 與 `edited_channel_post`。Bot 支援貼 URL、`/subscriptions`、`/status` 與 `/cancel`。部署驗證可執行 `deploy/telegram-webhook-smoke.sh`。公開 channel 預設使用 HTML scraper，不需要 Bot 加入來源頻道。
+
+## 共用電子報收件匣
+
+設定 `EMAIL_INBOUND_ADDRESS` 與 `EMAIL_INBOUND_WEBHOOK_SECRET` 後，Curio 會建立單一 `Email Inbox` subscription，讓所有電子報與轉寄信件共用一個收件地址。使用者可以把地址填入電子報訂閱表單，或將既有信件轉寄到這個地址。每封信會變成一筆 canonical item，沿用既有 route 與 delivery 流程。
+
+Curio 不直接執行 SMTP server。郵件服務收到信件後，應將信件內容轉成 JSON，並以 `X-Curio-Email-Secret` 呼叫 `POST /email/inbound`。同一個 `Message-ID` 會去重；沒有 `Message-ID` 時使用寄件者、主旨、日期與內容建立 hash。Curio 初期只保存純文字內容，不自動下載附件。Cloudflare Worker scaffold 位於 [`cloudflare/email-worker/`](cloudflare/email-worker/)，可接上 `reader@pdzeng.com`。
 
 ## 產品方向
 
@@ -126,6 +136,8 @@ Persistent Volume
 1. `probe(input)`：判斷 URL 可以建立哪些訂閱；
 2. `poll(subscription)`：根據 cursor 取得增量內容。
 
+事件型來源也可以直接接收外部事件，例如 Telegram webhook 與 Email inbound，不經過 scheduler poll。
+
 第一批可考慮：
 
 - RSS / Atom；
@@ -182,7 +194,8 @@ CLI、HTTP API 與未來的 App 應共用同一套核心模組與資料庫，不
 5. 定期取得增量內容；
 6. SQLite 去重與持久化 cursor；
 7. Telegram 投遞、重試與狀態查詢；
-8. Docker 部署與資料備份。
+8. Docker 部署與資料備份；
+9. 共用 Email Inbox 與電子報 inbound 收件。
 
 暫緩：
 
@@ -284,13 +297,13 @@ Selector 沒有匹配或抽取內容超過 256 KiB 會記錄 durable poll failur
 
 `RssSourceAdapter` 支援 RSS 2.0、Atom 與 RSS 1.0/RDF。它使用 Probe 的安全 transport，保存 ETag／Last-Modified、以 conditional request poll，並將 entries 正規化成 canonical items。
 
-第一次 poll 預設將最新 20 篇保存到 DB，但只替最新 1 篇建立 destination delivery。可在 subscription metadata 分別設定歷史收集與初次通知數量：
+第一次 poll 預設將最新 20 篇保存到 DB，但只替最新 1 篇建立 destination delivery；同一份 feed 的所有 external IDs 會保存成 cursor baseline，避免下一次完整 feed 回傳時重播未回填的歷史文章。可在 subscription metadata 分別設定歷史收集與初次通知數量：
 
 ```json
 {"backfillLimit": 20, "initialDeliveryLimit": 1}
 ```
 
-兩者合法範圍為 `0–500`，且 `initialDeliveryLimit` 不得大於 `backfillLimit`。後續 polls 會替每篇真正新增的 item 建立 delivery。失敗會記錄 `consecutive_failures`、`last_error`、`last_failed_at` 與 durable failure event；成功或 `304 Not Modified` 會清除 failure state。
+兩者合法範圍為 `0–500`，且 `initialDeliveryLimit` 不得大於 `backfillLimit`。後續 polls 只會替 baseline 之外真正新增的 item 建立 delivery。沒有 baseline 的既有 subscription 會在第一次成功完整 poll 時靜默建立 baseline，不會補送歷史內容。失敗會記錄 `consecutive_failures`、`last_error`、`last_failed_at` 與 durable failure event；成功或 `304 Not Modified` 會清除 failure state。
 
 Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到期 subscriptions，同一 subscription 不會在單一程序內重疊。正常 poll interval 預設 60 分鐘，可設為 `5–10080` 分鐘；失敗依 `5m → 15m → 1h → 6h` backoff 重試。
 
@@ -302,7 +315,7 @@ X profile URL 會建立 `x` subscription。Adapter 透過固定 argv 執行 pin 
 
 ### YouTube Source Adapter
 
-YouTube channel、handle、video URL 與 direct channel Atom feed 都會解析成 channel ID，subscription source key 使用 channel ID，因此 handle 改名不會建立 duplicate subscription。日常 poll 只讀官方 Atom feed；video ID 作為 immutable external ID，沿用 ETag／Last-Modified、backfill 與 initial delivery policy。
+YouTube channel、handle、video URL 與 direct channel Atom feed 都會解析成 channel ID，subscription source key 使用 channel ID，因此 handle 改名不會建立 duplicate subscription。日常 poll 優先讀官方 Atom feed；YouTube feed 回傳 `400`、`404` 或 `5xx` 時改讀 channel `/videos` page，讓既有 subscription 不需要重建。video ID 作為 immutable external ID，沿用 ETag／Last-Modified、backfill 與 initial delivery policy。
 
 ### Telegram delivery
 
@@ -313,7 +326,7 @@ bun run curio deliveries list --status uncertain --json
 bun run curio deliveries retry <delivery-id> --json
 ```
 
-Telegram 429 依 `retry_after` 重試，network/5xx 最多嘗試 5 次。Timeout 或 malformed success 會標記 `uncertain`，必須人工 retry，避免盲目重送造成 duplicate。
+Telegram delivery 對每個 destination 依 `publishedAt` 由舊到新排序並序列化；沒有 `publishedAt` 時回退到 delivery 建立時間。同一 destination 的前一筆 delivery 尚未完成或需要 retry 時，後續項目會停在 queue 中。Telegram 429 依 `retry_after` 重試，network/5xx 最多嘗試 5 次。Timeout 或 malformed success 會標記 `uncertain`，必須人工 retry，避免盲目重送造成 duplicate。
 
 ## 環境變數
 
@@ -324,6 +337,8 @@ Telegram 429 依 `retry_after` 重試，network/5xx 最多嘗試 5 次。Timeout
 | `DATABASE_PATH` | `./data/curio.db` | SQLite database path；container 使用 `/data/curio.db` |
 | `TELEGRAM_BOT_TOKEN` | 未設定 | Telegram Bot token；必須與 chat ID 同時設定 |
 | `TELEGRAM_CHAT_ID` | 未設定 | Telegram channel username 或 numeric chat ID |
+| `EMAIL_INBOUND_ADDRESS` | 未設定 | 共用電子報收件地址；必須與 webhook secret 同時設定 |
+| `EMAIL_INBOUND_WEBHOOK_SECRET` | 未設定 | `POST /email/inbound` 的 shared secret；必須與收件地址同時設定 |
 | `X_AUTH_TOKEN` | 未設定 | X `auth_token` session cookie；必須與 `X_CT0` 同時設定 |
 | `X_CT0` | 未設定 | X CSRF session cookie；必須與 `X_AUTH_TOKEN` 同時設定 |
 | `CURIO_NETWORK` | `personal-infra_private` | Compose 使用的既有 external Docker network |
