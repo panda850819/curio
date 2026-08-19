@@ -9,6 +9,7 @@ describe("loadConfig", () => {
       databasePath: "./data/curio.db",
       telegram: null,
       email: null,
+      github: null,
       x: null,
     });
   });
@@ -37,6 +38,14 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ EMAIL_INBOUND_WEBHOOK_SECRET: "email-secret" })).toThrow(
       "configured together",
     );
+  });
+
+  test("loads an optional GitHub token without exposing it elsewhere", () => {
+    expect(loadConfig({ GITHUB_TOKEN: "  ghp_test-token  " }).github).toEqual({
+      token: "ghp_test-token",
+    });
+    expect(() => loadConfig({ GITHUB_TOKEN: "bad\nvalue" })).toThrow("control characters");
+    expect(() => loadConfig({ GITHUB_TOKEN: "x".repeat(513) })).toThrow("at most 512");
   });
 
   test("loads X only when both cookie values are configured", () => {

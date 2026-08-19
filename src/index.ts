@@ -20,6 +20,7 @@ const app = createApp({
   x: config.x,
   telegram: config.telegram,
   email: config.email,
+  github: config.github,
 });
 let telegramWebhook: TelegramWebhookHandler | undefined;
 let emailWebhook: EmailWebhookHandler | undefined;

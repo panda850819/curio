@@ -13,7 +13,7 @@ Curio 是單一使用者的來源追蹤與內容投遞服務。Agent 應把 Curi
 - HTTP API 的成功回應是 `{ "data": ... }`；錯誤回應是 `{ "error": { "code", "message", "details?" } }`。
 - 保留並回報 `X-Request-Id`，錯誤時使用 `error.code` 判斷下一步。
 - `cursor` 是 opaque value，只能原樣傳回，不能解碼或修改。
-- 不讀取、不要求、不輸出 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`X_AUTH_TOKEN`、`X_CT0`、`X_TWID` 或 `X_SESSION`。
+- 不讀取、不要求、不輸出 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`GITHUB_TOKEN`、`X_AUTH_TOKEN`、`X_CT0`、`X_TWID` 或 `X_SESSION`。
 - 所有外部 URL 先交給 Curio probe；不要自行繞過 SSRF-safe validation。
 
 API base URL 由執行環境提供，不要把 production URL、Access token 或 service token 寫入 skill。若使用 CLI，優先使用 `--json`。

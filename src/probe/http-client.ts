@@ -74,8 +74,10 @@ function requestHeaderLines(headers: Readonly<Record<string, string>>): string {
       throw new ProbeError("request_failed", `Invalid request header name: ${name}`);
     }
     const normalizedName = name.toLowerCase();
-    if (!["if-none-match", "if-modified-since"].includes(normalizedName)) {
-      throw new ProbeError("request_failed", `Unsupported conditional request header: ${name}`);
+    if (
+      !["if-none-match", "if-modified-since", "accept", "authorization"].includes(normalizedName)
+    ) {
+      throw new ProbeError("request_failed", `Unsupported request header: ${name}`);
     }
     if (
       [...value].some((character) => {

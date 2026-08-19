@@ -53,6 +53,7 @@ export const AGENT_MANIFEST = {
     secretsNeverReturned: [
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
+      "GITHUB_TOKEN",
       "X_AUTH_TOKEN",
       "X_CT0",
       "X_TWID",
