@@ -109,6 +109,7 @@ describe("HTTP handler", () => {
     );
     expect(body.data.safety.confirmationRequiredFor).toContain("subscriptions.remove");
     expect(body.data.safety.secretsNeverReturned).toContain("TELEGRAM_BOT_TOKEN");
+    expect(body.data.safety.secretsNeverReturned).toContain("GITHUB_TOKEN");
     expect(JSON.stringify(body)).not.toContain("secret-bot-token");
 
     const method = await context.request(

@@ -8,6 +8,10 @@ export const GITHUB_API_HEADERS = {
   Accept: "application/vnd.github+json",
 } as const;
 
+export function githubApiHeaders(token?: string): Readonly<Record<string, string>> {
+  return token ? { ...GITHUB_API_HEADERS, Authorization: `Bearer ${token}` } : GITHUB_API_HEADERS;
+}
+
 function isJsonContentType(value: string | null): boolean {
   const mediaType = value?.split(";", 1)[0]?.trim().toLowerCase();
   return mediaType === "application/json" || mediaType === "application/vnd.github+json";
@@ -24,11 +28,16 @@ function parseJson(body: Uint8Array): unknown {
 export async function githubProbeResult(
   inputUrl: string,
   client: ProbeHttpClient,
+  token?: string,
 ): Promise<ProbeResult | null> {
   const reference = parseGithubRepository(inputUrl);
   if (!reference) return null;
 
-  const response = await client.get(reference.apiUrl, () => GITHUB_JSON_LIMIT, GITHUB_API_HEADERS);
+  const response = await client.get(
+    reference.apiUrl,
+    () => GITHUB_JSON_LIMIT,
+    githubApiHeaders(token),
+  );
   if (response.status < 200 || response.status >= 300) {
     throw new ProbeError(
       "http_status",

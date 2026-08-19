@@ -4,6 +4,7 @@ export interface Config {
   databasePath: string;
   telegram: { botToken: string; chatId: string } | null;
   email: { address: string; webhookSecret: string } | null;
+  github: { token: string } | null;
   x: { authToken: string; ct0: string } | null;
 }
 
@@ -46,6 +47,19 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error("EMAIL_INBOUND_WEBHOOK_SECRET must be at most 256 characters");
   }
 
+  const githubToken = env.GITHUB_TOKEN?.trim() || "";
+  if (githubToken.length > 512) {
+    throw new Error("GITHUB_TOKEN must be at most 512 characters");
+  }
+  if (
+    [...githubToken].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint < 32 || codePoint === 127;
+    })
+  ) {
+    throw new Error("GITHUB_TOKEN must not contain control characters");
+  }
+
   const xAuthToken = env.X_AUTH_TOKEN?.trim() || "";
   const xCt0 = env.X_CT0?.trim() || "";
   if (Boolean(xAuthToken) !== Boolean(xCt0)) {
@@ -60,6 +74,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     email: emailAddress
       ? { address: emailAddress.toLowerCase(), webhookSecret: emailWebhookSecret }
       : null,
+    github: githubToken ? { token: githubToken } : null,
     x: xAuthToken ? { authToken: xAuthToken, ct0: xCt0 } : null,
   };
 }

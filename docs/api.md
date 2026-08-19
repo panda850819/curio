@@ -66,6 +66,12 @@ Webhook 由 `bun run telegram:webhook` 獨立設定，正常 startup 不會呼�
 
 `to` 也可以寫成 `recipient`。`subject` 或 `text`／`html` 至少要提供一項。Curio 會將信件轉成 canonical item，保留純文字內容，不自動下載附件。相同訊息重送時回 `{ "ok": true, "status": "duplicate" }`，不會新增第二筆 item。
 
+## GitHub sources
+
+`POST /api/v1/probes` 接受 GitHub `owner/repo` 或 repository URL，會先驗證 public REST releases endpoint，再回傳 `github` candidate。可選 `GITHUB_TOKEN` 只用於 REST `Authorization` header，不會進入 subscription、cursor、log 或 child process environment。
+
+`releases.atom` 與 `commits/<branch>.atom` 會先做 capability probe；只有 `2xx` 與 `application/atom+xml` 通過時才回傳 `github_atom` candidate。Atom adapter 不支援 `issues.atom`、generic discovery、HTML fallback 或 REST fallback。
+
 ## 分頁
 
 List endpoint 接受：

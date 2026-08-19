@@ -301,10 +301,12 @@ export async function runCli(args: string[], dependencies: CliDependencies): Pro
 if (import.meta.main) {
   const xAuthToken = process.env.X_AUTH_TOKEN?.trim() ?? "";
   const xCt0 = process.env.X_CT0?.trim() ?? "";
+  const githubToken = process.env.GITHUB_TOKEN?.trim() ?? "";
   const app = createApp({
     databasePath: process.env.DATABASE_PATH ?? "./data/curio.db",
     migrationsPath: process.env.MIGRATIONS_PATH,
     x: xAuthToken && xCt0 ? { authToken: xAuthToken, ct0: xCt0 } : null,
+    github: githubToken ? { token: githubToken } : null,
   });
   try {
     process.exitCode = await runCli(

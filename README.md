@@ -307,6 +307,14 @@ Selector 沒有匹配或抽取內容超過 256 KiB 會記錄 durable poll failur
 
 Curio service（`bun run start`）會以最多 4 個 concurrent polls 收集到期 subscriptions，同一 subscription 不會在單一程序內重疊。正常 poll interval 預設 60 分鐘，可設為 `5–10080` 分鐘；失敗依 `5m → 15m → 1h → 6h` backoff 重試。
 
+### GitHub Source Adapters
+
+GitHub repository URL 或 `owner/repo` 會建立 `github` subscription，使用 official public REST releases endpoint。Release numeric ID 是 immutable item ID；adapter 保存 release metadata、使用 ETag／`If-None-Match`，並依 `Link` header 分頁，不把 page number 當 durable cursor。`403`／`429` 會依 `x-ratelimit-reset` 或 `retry-after` 延後下一次 poll。
+
+GitHub `releases.atom` 與指定 branch 的 `commits/<branch>.atom` 只在 capability probe 成功且回傳 `application/atom+xml` 時建立 `github_atom` candidate。Release 使用 Atom entry identity，commit 使用 SHA。兩者都保存 ETag／Last-Modified，不支援 `issues.atom`、HTML fallback 或 REST fallback。
+
+可選的 `GITHUB_TOKEN` 只會放在 GitHub REST request 的 `Authorization` header，不會寫入 DB、log 或 child process environment。未設定時使用 GitHub documented unauthenticated quota。
+
 ### X Source Adapter
 
 X profile URL 會建立 `x` subscription。Adapter 透過固定 argv 執行 pin 至 commit `5098a67898acf81927422c4be760705c29a0e2d1` 的 `xbird user-tweets`，預設收錄原始 posts 與 quote posts，排除 replies 與 reposts。Tweet ID 是 immutable external ID；首次最多保存 20 則並通知最新 1 則。
@@ -339,6 +347,7 @@ Telegram delivery 對每個 destination 依 `publishedAt` 由舊到新排序並�
 | `TELEGRAM_CHAT_ID` | 未設定 | Telegram channel username 或 numeric chat ID |
 | `EMAIL_INBOUND_ADDRESS` | 未設定 | 共用電子報收件地址；必須與 webhook secret 同時設定 |
 | `EMAIL_INBOUND_WEBHOOK_SECRET` | 未設定 | `POST /email/inbound` 的 shared secret；必須與收件地址同時設定 |
+| `GITHUB_TOKEN` | 未設定 | GitHub REST optional token；只存在 runtime secret，不寫入 DB 或 log |
 | `X_AUTH_TOKEN` | 未設定 | X `auth_token` session cookie；必須與 `X_CT0` 同時設定 |
 | `X_CT0` | 未設定 | X CSRF session cookie；必須與 `X_AUTH_TOKEN` 同時設定 |
 | `CURIO_NETWORK` | `personal-infra_private` | Compose 使用的既有 external Docker network |

@@ -225,6 +225,29 @@ describe("GithubSourceAdapter", () => {
     context.database.close();
   });
 
+  test("sends an optional token without persisting it", async () => {
+    const context = setup({ backfillLimit: 0 });
+    const client = new FakeClient([response([])]);
+    const adapter = new GithubSourceAdapter(
+      client,
+      context.subscriptions,
+      context.items,
+      context.now,
+      "ghp_test-token",
+    );
+
+    await adapter.poll(context.subscription.id);
+
+    expect(client.requests[0]?.headers).toEqual({
+      Accept: "application/vnd.github+json",
+      Authorization: "Bearer ghp_test-token",
+    });
+    expect(
+      JSON.stringify(context.subscriptions.findById(context.subscription.id)?.cursor),
+    ).not.toContain("ghp_test-token");
+    context.database.close();
+  });
+
   test("follows GitHub Link pagination without persisting a page cursor", async () => {
     const context = setup({ backfillLimit: 20, initialDeliveryLimit: 0 });
     const secondPage = "https://api.github.com/repos/cli/cli/releases?per_page=100&page=2";

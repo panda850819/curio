@@ -3,7 +3,7 @@ import type { JsonValue, Subscription } from "../../domain/types.ts";
 import type { HttpResponse, ProbeHttpClient } from "../../probe/types.ts";
 import { sanitizeErrorMessage } from "../../security/redaction.ts";
 import { normalizeGithubReleases } from "./normalize.ts";
-import { GITHUB_API_HEADERS } from "./probe.ts";
+import { githubApiHeaders } from "./probe.ts";
 import type { GithubCursor, GithubNormalizedRelease, GithubPollResult } from "./types.ts";
 import { githubReleasesApiUrl } from "./url.ts";
 
@@ -92,9 +92,12 @@ function safeCursorHeader(value: string | null, name: string): string | undefine
   return value;
 }
 
-function conditionalHeaders(cursor: GithubCursor): Readonly<Record<string, string>> {
+function conditionalHeaders(
+  cursor: GithubCursor,
+  token?: string,
+): Readonly<Record<string, string>> {
   return {
-    ...GITHUB_API_HEADERS,
+    ...githubApiHeaders(token),
     ...(cursor.etag ? { "If-None-Match": cursor.etag } : {}),
   };
 }
@@ -196,6 +199,7 @@ export class GithubSourceAdapter {
     private readonly subscriptions: SubscriptionRepository,
     private readonly items: ItemRepository,
     private readonly now: () => number = Date.now,
+    private readonly token?: string,
   ) {}
 
   private async fetchReleases(
@@ -219,7 +223,7 @@ export class GithubSourceAdapter {
       const response = await this.client.get(
         url,
         () => GITHUB_JSON_LIMIT,
-        firstPage ? conditionalHeaders(cursor) : GITHUB_API_HEADERS,
+        firstPage ? conditionalHeaders(cursor, this.token) : githubApiHeaders(this.token),
       );
       if (firstPage && response.status === 304) {
         return { status: "not_modified", values: [], etag: cursor.etag };

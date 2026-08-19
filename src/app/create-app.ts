@@ -39,6 +39,7 @@ export interface CreateAppOptions {
   x?: Config["x"];
   telegram?: Config["telegram"];
   email?: Config["email"];
+  github?: Config["github"];
   telegramTransport?: TelegramTransport;
   probeClient?: ProbeHttpClient;
   xClient?: XbirdTimelineClient;
@@ -86,7 +87,13 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
   const probeClient = options.probeClient ?? new SafeHttpClient(new SystemResolver());
   const rssAdapter = new RssSourceAdapter(probeClient, subscriptions, items, now);
   const htmlAdapter = new HtmlSourceAdapter(probeClient, subscriptions, items, now);
-  const githubAdapter = new GithubSourceAdapter(probeClient, subscriptions, items, now);
+  const githubAdapter = new GithubSourceAdapter(
+    probeClient,
+    subscriptions,
+    items,
+    now,
+    options.github?.token,
+  );
   const githubAtomAdapter = new GithubAtomSourceAdapter(probeClient, subscriptions, items, now);
   const youtubeAdapter = new YoutubeSourceAdapter(probeClient, subscriptions, items, now);
   const telegramSource = new TelegramSourceAdapter(subscriptions, items, now);
@@ -110,7 +117,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
   const router = new SourceRouter(subscriptions, pollers);
   const coordinator = new PollCoordinator(router);
   const scheduler = new PollScheduler(subscriptions, coordinator, now);
-  const probeService = new DefaultProbeService(probeClient);
+  const probeService = new DefaultProbeService(probeClient, options.github?.token);
 
   const services: ApplicationServices = {
     probe: probeService,

@@ -57,6 +57,17 @@ describe("GitHub probe", () => {
     ]);
   });
 
+  test("adds an optional token only to the REST request headers", async () => {
+    const client = new FakeClient();
+
+    await githubProbeResult("cli/cli", client, "ghp_test-token");
+
+    expect(client.requests[0]?.headers).toEqual({
+      Accept: "application/vnd.github+json",
+      Authorization: "Bearer ghp_test-token",
+    });
+  });
+
   test("returns null for non-GitHub input", async () => {
     const client = new FakeClient();
 

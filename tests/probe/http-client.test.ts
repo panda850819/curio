@@ -46,6 +46,7 @@ describe("SafeHttpClient", () => {
         path: new URL(request.url).pathname,
         ifNoneMatch: request.headers.get("if-none-match"),
         accept: request.headers.get("accept"),
+        authorization: request.headers.get("authorization"),
       }),
     );
     const resolver = new FakeResolver({
@@ -61,6 +62,7 @@ describe("SafeHttpClient", () => {
     const result = await client.get("http://probe.test/path", () => 1_024, {
       "If-None-Match": '"version-1"',
       Accept: "application/vnd.github+json",
+      Authorization: "Bearer ghp_test-token",
     });
 
     expect(JSON.parse(new TextDecoder().decode(result.body))).toEqual({
@@ -69,6 +71,7 @@ describe("SafeHttpClient", () => {
       ifNoneMatch: '"version-1"',
       accept:
         "application/rss+xml, application/atom+xml, application/rdf+xml, application/xml, text/xml, text/html;q=0.9, */*;q=0.1, application/vnd.github+json",
+      authorization: "Bearer ghp_test-token",
     });
     expect(connections).toEqual([
       {
