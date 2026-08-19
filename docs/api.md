@@ -96,7 +96,7 @@ Cursor 是服務內部的 keyset cursor。不要自行解碼或修改。資料�
 
 `GET /api/v1/agent/manifest` 回傳 agent 可讀的操作清單與安全契約。回應包含 `manifestVersion`、transport envelope、pagination、操作的 HTTP method／path／request fields／side effects，以及需要確認的 mutation 與 destructive operations。Manifest 不包含任何 runtime credentials，並沿用既有 auth guard 與 `X-Request-Id`。
 
-Agent 應先讀取 manifest，再依照 `probe → candidate confirmation → subscription → route → poll → verify` 工作流操作。`cursor` 是 opaque value，不可自行解碼；`subscriptions.remove` 與 `routes.remove` 必須取得明確確認。
+Agent 應先讀取 manifest，再依照 `probe → candidate confirmation → subscription → route → poll → verify` 工作流操作。`cursor` 是 opaque value，不可自行解碼；`subscriptions.remove` 與 `routes.remove` 必須取得明確確認。目的地驗證只回傳 sanitized metadata，不回傳 runtime credential。
 
 ### MCP stdio toolkit
 

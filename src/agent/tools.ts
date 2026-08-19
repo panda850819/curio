@@ -124,10 +124,10 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       "Read the Curio agent capability manifest.",
       "none",
       emptySchema,
-      () => client.get("/api/v1/agent/manifest"),
+      () => client.getResponse("/api/v1/agent/manifest"),
     ),
     tool("curio_get_health", "Read Curio service health and uptime.", "none", emptySchema, () =>
-      client.get("/health"),
+      client.getResponse("/health"),
     ),
     tool(
       "curio_probe_source",
@@ -141,7 +141,9 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       },
       (value) => {
         const argumentsValue = objectArguments(value);
-        return client.post("/api/v1/probes", { url: requiredString(argumentsValue, "url") });
+        return client.postResponse("/api/v1/probes", {
+          url: requiredString(argumentsValue, "url"),
+        });
       },
     ),
     tool(
@@ -156,7 +158,7 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
         },
         additionalProperties: false,
       },
-      (value) => client.get("/api/v1/subscriptions", listQuery(objectArguments(value))),
+      (value) => client.getResponse("/api/v1/subscriptions", listQuery(objectArguments(value))),
     ),
     tool(
       "curio_get_source",
@@ -170,7 +172,9 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       },
       (value) => {
         const argumentsValue = objectArguments(value);
-        return client.get(idPath("/api/v1/subscriptions", requiredString(argumentsValue, "id")));
+        return client.getResponse(
+          idPath("/api/v1/subscriptions", requiredString(argumentsValue, "id")),
+        );
       },
     ),
     tool(
@@ -188,7 +192,7 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       },
       (value) => {
         const argumentsValue = objectArguments(value);
-        return client.get("/api/v1/items", {
+        return client.getResponse("/api/v1/items", {
           ...listQuery(argumentsValue),
           subscriptionId: optionalString(argumentsValue, "subscriptionId"),
         });
@@ -219,7 +223,7 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
         const metadata = argumentsValue.metadata;
         if (interval !== undefined) body.pollIntervalMinutes = interval;
         if (metadata !== undefined) body.metadata = requiredObject(argumentsValue, "metadata");
-        return client.post("/api/v1/subscriptions", body);
+        return client.postResponse("/api/v1/subscriptions", body);
       },
     ),
     tool(
@@ -234,7 +238,7 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       },
       (value) => {
         const argumentsValue = objectArguments(value);
-        return client.post(
+        return client.postResponse(
           `${idPath("/api/v1/subscriptions", requiredString(argumentsValue, "id"))}/poll`,
         );
       },
@@ -252,9 +256,10 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       (value) => {
         const argumentsValue = objectArguments(value);
         requireConfirmation(argumentsValue, "curio_pause_source");
-        return client.patch(idPath("/api/v1/subscriptions", requiredString(argumentsValue, "id")), {
-          enabled: false,
-        });
+        return client.patchResponse(
+          idPath("/api/v1/subscriptions", requiredString(argumentsValue, "id")),
+          { enabled: false },
+        );
       },
     ),
     tool(
@@ -270,9 +275,10 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       (value) => {
         const argumentsValue = objectArguments(value);
         requireConfirmation(argumentsValue, "curio_resume_source");
-        return client.patch(idPath("/api/v1/subscriptions", requiredString(argumentsValue, "id")), {
-          enabled: true,
-        });
+        return client.patchResponse(
+          idPath("/api/v1/subscriptions", requiredString(argumentsValue, "id")),
+          { enabled: true },
+        );
       },
     ),
     tool(
@@ -288,7 +294,9 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       (value) => {
         const argumentsValue = objectArguments(value);
         requireConfirmation(argumentsValue, "curio_remove_source");
-        return client.delete(idPath("/api/v1/subscriptions", requiredString(argumentsValue, "id")));
+        return client.deleteResponse(
+          idPath("/api/v1/subscriptions", requiredString(argumentsValue, "id")),
+        );
       },
     ),
     tool(
@@ -299,7 +307,25 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
         ...emptySchema,
         properties: { limit: { type: "integer", minimum: 1, maximum: 100 }, cursor: stringSchema },
       },
-      (value) => client.get("/api/v1/destinations", listQuery(objectArguments(value))),
+      (value) => client.getResponse("/api/v1/destinations", listQuery(objectArguments(value))),
+    ),
+    tool(
+      "curio_verify_destination",
+      "Verify one delivery destination with Curio's server-side runtime credential.",
+      "required",
+      {
+        type: "object",
+        properties: { id: stringSchema, confirm: confirmationSchema },
+        required: ["id", "confirm"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        requireConfirmation(argumentsValue, "curio_verify_destination");
+        return client.postResponse(
+          `${idPath("/api/v1/destinations", requiredString(argumentsValue, "id"))}/verify`,
+        );
+      },
     ),
     tool(
       "curio_list_routes",
@@ -316,7 +342,7 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       },
       (value) => {
         const argumentsValue = objectArguments(value);
-        return client.get("/api/v1/routes", {
+        return client.getResponse("/api/v1/routes", {
           ...listQuery(argumentsValue),
           subscriptionId: optionalString(argumentsValue, "subscriptionId"),
         });
@@ -340,7 +366,7 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       (value) => {
         const argumentsValue = objectArguments(value);
         requireConfirmation(argumentsValue, "curio_create_route");
-        return client.post("/api/v1/routes", {
+        return client.postResponse("/api/v1/routes", {
           subscriptionId: requiredString(argumentsValue, "subscriptionId"),
           destinationId: requiredString(argumentsValue, "destinationId"),
           ...(argumentsValue.enabled === undefined
@@ -362,7 +388,9 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       (value) => {
         const argumentsValue = objectArguments(value);
         requireConfirmation(argumentsValue, "curio_remove_route");
-        return client.delete(idPath("/api/v1/routes", requiredString(argumentsValue, "id")));
+        return client.deleteResponse(
+          idPath("/api/v1/routes", requiredString(argumentsValue, "id")),
+        );
       },
     ),
     tool(
@@ -380,7 +408,7 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       },
       (value) => {
         const argumentsValue = objectArguments(value);
-        return client.get("/api/v1/deliveries", {
+        return client.getResponse("/api/v1/deliveries", {
           ...listQuery(argumentsValue),
           status: optionalString(argumentsValue, "status"),
         });
@@ -399,7 +427,7 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       (value) => {
         const argumentsValue = objectArguments(value);
         requireConfirmation(argumentsValue, "curio_retry_delivery");
-        return client.post(
+        return client.postResponse(
           `${idPath("/api/v1/deliveries", requiredString(argumentsValue, "id"))}/retry`,
         );
       },
