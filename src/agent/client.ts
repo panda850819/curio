@@ -15,12 +15,20 @@ export interface CurioAgentClientOptions {
   fetch?: FetchLike;
 }
 
+export class CurioAgentResponse<T> {
+  constructor(
+    readonly data: T,
+    readonly requestId?: string,
+  ) {}
+}
+
 export class CurioAgentApiError extends Error {
   constructor(
     readonly code: string,
     message: string,
     readonly status: number,
     readonly details?: unknown,
+    readonly requestId?: string,
   ) {
     super(message);
     this.name = "CurioAgentApiError";
@@ -53,6 +61,13 @@ export class CurioAgentApiClient {
   }
 
   async get<T>(path: string, query: Record<string, string | number | undefined> = {}): Promise<T> {
+    return (await this.getResponse<T>(path, query)).data;
+  }
+
+  async getResponse<T>(
+    path: string,
+    query: Record<string, string | number | undefined> = {},
+  ): Promise<CurioAgentResponse<T>> {
     const url = new URL(path, this.baseUrl);
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined) url.searchParams.set(key, String(value));
@@ -61,6 +76,10 @@ export class CurioAgentApiClient {
   }
 
   async post<T>(path: string, body?: unknown): Promise<T> {
+    return (await this.postResponse<T>(path, body)).data;
+  }
+
+  async postResponse<T>(path: string, body?: unknown): Promise<CurioAgentResponse<T>> {
     return this.request<T>(new URL(path, this.baseUrl), {
       method: "POST",
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -68,6 +87,10 @@ export class CurioAgentApiClient {
   }
 
   async patch<T>(path: string, body: unknown): Promise<T> {
+    return (await this.patchResponse<T>(path, body)).data;
+  }
+
+  async patchResponse<T>(path: string, body: unknown): Promise<CurioAgentResponse<T>> {
     return this.request<T>(new URL(path, this.baseUrl), {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -75,10 +98,14 @@ export class CurioAgentApiClient {
   }
 
   async delete<T>(path: string): Promise<T> {
+    return (await this.deleteResponse<T>(path)).data;
+  }
+
+  async deleteResponse<T>(path: string): Promise<CurioAgentResponse<T>> {
     return this.request<T>(new URL(path, this.baseUrl), { method: "DELETE" });
   }
 
-  private async request<T>(url: URL, init: RequestInit = {}): Promise<T> {
+  private async request<T>(url: URL, init: RequestInit = {}): Promise<CurioAgentResponse<T>> {
     const headers = new Headers(init.headers);
     headers.set("accept", "application/json");
     if (init.body !== undefined) headers.set("content-type", "application/json");
@@ -90,6 +117,7 @@ export class CurioAgentApiClient {
       throw new CurioAgentApiError("transport_error", sanitizeErrorMessage(error), 0);
     }
 
+    const requestId = response.headers.get("x-request-id") ?? undefined;
     const text = await response.text();
     let body: CurioApiResponse;
     try {
@@ -99,6 +127,8 @@ export class CurioAgentApiClient {
         "invalid_response",
         `Curio returned a non-JSON response (${response.status})`,
         response.status,
+        undefined,
+        requestId,
       );
     }
 
@@ -111,8 +141,9 @@ export class CurioAgentApiClient {
           : `Curio request failed (${response.status})`,
         response.status,
         error?.details,
+        requestId,
       );
     }
-    return ("data" in body ? body.data : body) as T;
+    return new CurioAgentResponse(("data" in body ? body.data : body) as T, requestId);
   }
 }

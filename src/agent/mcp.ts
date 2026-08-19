@@ -1,4 +1,4 @@
-import { CurioAgentApiClient, CurioAgentApiError } from "./client.ts";
+import { CurioAgentApiClient, CurioAgentApiError, CurioAgentResponse } from "./client.ts";
 import { type CurioAgentTool, CurioAgentToolError, createCurioAgentTools } from "./tools.ts";
 
 const MCP_PROTOCOL_VERSION = "2024-11-05";
@@ -29,9 +29,17 @@ function errorResponse(id: JsonRpcId, code: number, message: string): JsonObject
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
-function toolResult(data: unknown): JsonObject {
+function toolResult(value: unknown): JsonObject {
+  const result =
+    value instanceof CurioAgentResponse
+      ? {
+          ok: true,
+          data: value.data,
+          ...(value.requestId ? { requestId: value.requestId } : {}),
+        }
+      : { ok: true, data: value };
   return {
-    content: [{ type: "text", text: JSON.stringify({ ok: true, data }) }],
+    content: [{ type: "text", text: JSON.stringify(result) }],
     isError: false,
   };
 }
@@ -39,7 +47,13 @@ function toolResult(data: unknown): JsonObject {
 function toolError(error: unknown): JsonObject {
   const normalized =
     error instanceof CurioAgentToolError || error instanceof CurioAgentApiError
-      ? { code: error.code, message: error.message }
+      ? {
+          code: error.code,
+          message: error.message,
+          ...(error instanceof CurioAgentApiError && error.requestId
+            ? { requestId: error.requestId }
+            : {}),
+        }
       : { code: "tool_error", message: error instanceof Error ? error.message : String(error) };
   return {
     content: [{ type: "text", text: JSON.stringify({ ok: false, error: normalized }) }],
@@ -102,6 +116,8 @@ export function createCurioMcpServer(tools: CurioAgentTool[]): CurioMcpServer {
   };
 }
 
+export type CurioMcpResponseWriter = (value: JsonObject) => void | Promise<void>;
+
 async function writeResponse(value: JsonObject): Promise<void> {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
@@ -109,6 +125,7 @@ async function writeResponse(value: JsonObject): Promise<void> {
 export async function runCurioMcpServer(
   client: CurioAgentApiClient,
   input: AsyncIterable<Uint8Array> = Bun.stdin.stream(),
+  write: CurioMcpResponseWriter = writeResponse,
 ): Promise<void> {
   const server = createCurioMcpServer(createCurioAgentTools(client));
   const decoder = new TextDecoder();
@@ -126,25 +143,26 @@ export async function runCurioMcpServer(
       try {
         message = JSON.parse(line);
       } catch {
-        await writeResponse(errorResponse(null, -32_700, "Parse error"));
+        await write(errorResponse(null, -32_700, "Parse error"));
         continue;
       }
       const result = await server.handle(message);
-      if (result) await writeResponse(result);
+      if (result) await write(result);
     }
   }
 
+  buffer += decoder.decode();
   const trailing = buffer.trim();
   if (trailing) {
     let message: unknown;
     try {
       message = JSON.parse(trailing);
     } catch {
-      await writeResponse(errorResponse(null, -32_700, "Parse error"));
+      await write(errorResponse(null, -32_700, "Parse error"));
       return;
     }
     const result = await server.handle(message);
-    if (result) await writeResponse(result);
+    if (result) await write(result);
   }
 }
 

@@ -18,6 +18,22 @@ Curio 是單一使用者的來源追蹤與內容投遞服務。Agent 應把 Curi
 
 API base URL 由執行環境提供，不要把 production URL、Access token 或 service token 寫入 skill。若使用 CLI，優先使用 `--json`。
 
+### JSON CLI
+
+CLI 也使用同一套資源與安全邊界；不把 credentials 放在 command arguments：
+
+```bash
+bun run curio probe https://example.com/feed.xml --json
+bun run curio follow https://example.com/feed.xml --candidate 1 --json
+bun run curio list --json
+bun run curio show <subscription-id> --json
+bun run curio poll <subscription-id> --json
+bun run curio deliveries list --json
+bun run curio deliveries retry <delivery-id> --json
+```
+
+CLI 的 mutation 若由 agent 代為執行，也要先取得使用者確認；`--json` 輸出解析 `ok`、`data` 與錯誤的 `code`，不要依賴人類格式文字。
+
 ## 資料模型
 
 - **Source**：外部網站、feed、YouTube channel、X profile 或 Telegram channel。
@@ -27,7 +43,7 @@ API base URL 由執行環境提供，不要把 production URL、Access token 或
 - **Route**：把 subscription 連到 destination。
 - **Delivery**：一個 item 的投遞狀態與重試紀錄。
 
-作者缺失時保留原始來源，不補假作者。不同管道只有在使用者明確確認後才能連到同一人物；未確認或匿名來源維持獨立。
+作者缺失時保留原始來源，不補假作者。URL、來源名稱與最近主題只引用 Curio 實際回傳的資料；人物連結只有在來源明確提供且使用者確認後才合併，不把相似名稱推測成同一人物。
 
 ## 標準工作流
 
@@ -40,6 +56,7 @@ API base URL 由執行環境提供，不要把 production URL、Access token 或
 5. `POST /api/v1/subscriptions`，傳入 probe 回傳的完整 candidate。
 6. `POST /api/v1/routes` 連接已確認的 destination。
 7. `POST /api/v1/subscriptions/:id/poll`，確認最新內容、inserted items 與 delivery 狀態。
+8. 若需要驗證投遞目的地，先取得確認後呼叫 `POST /api/v1/destinations/:id/verify`，只使用 server 回傳的 sanitized metadata。
 
 重複建立相同 subscription 時，接受服務回傳的 `disposition: "existing"`，不要自行建立第二筆。
 
@@ -52,12 +69,13 @@ API base URL 由執行環境提供，不要把 production URL、Access token 或
 - 路由：`GET /api/v1/routes?subscriptionId=:id`
 - 投遞：`GET /api/v1/deliveries`
 - 服務健康：`GET /health`
+- 投遞目的地驗證：`POST /api/v1/destinations/:id/verify`
 
 清單回應使用 `items` 與 `nextCursor`。有 `nextCursor` 時才繼續分頁，並原樣傳回 cursor。
 
 ### Mutation 與確認
 
-- `subscriptions.create`、`subscriptions.update`、`destinations.create`、`destinations.update`、`routes.create`、`routes.update`、`deliveries.retry`：先說明變更並取得明確確認。
+- `subscriptions.create`、`subscriptions.update`、`destinations.create`、`destinations.update`、`destinations.verify`、`routes.create`、`routes.update`、`deliveries.retry`：先說明變更並取得明確確認。
 - `subscriptions.remove` 與 `routes.remove`：一定要明確確認。不要用模糊的「看起來可以」代替確認。
 - `subscriptions.poll` 會產生外部請求，並可能建立 delivery；來源已確認後可以執行。
 - 任何 mutation 失敗時先讀 `error.code`，不要盲目重試。只有服務明確表示可重試時才重試。
@@ -85,7 +103,7 @@ Repository 提供 stdio MCP transport：
 CURIO_AGENT_URL=http://127.0.0.1:3000 bun run agent:mcp
 ```
 
-它只連到既有 Curio HTTP API，不開新的 host port。將 MCP process 放在 Curio container 或同一個 private network；不要把 `CURIO_AGENT_URL` 指向未受保護的公開服務。先呼叫 `curio_get_manifest`，再使用 `curio_probe_source`、`curio_create_subscription`、`curio_create_route` 與 `curio_poll_source` 等 tools。
+它只連到既有 Curio HTTP API，不開新的 host port。將 MCP process 放在 Curio container 或同一個 private network；不要把 `CURIO_AGENT_URL` 指向未受保護的公開服務。先呼叫 `curio_get_manifest`，再使用 `curio_probe_source`、`curio_create_subscription`、`curio_create_route`、`curio_poll_source` 與 `curio_verify_destination` 等 tools。
 
 `curio_remove_source`、`curio_remove_route` 與其他標記為需要確認的 tool 必須傳入 `confirm: true`；agent 只能在使用者明確確認後傳入。
 
