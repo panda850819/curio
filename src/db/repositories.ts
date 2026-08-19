@@ -489,6 +489,15 @@ export class ItemRepository {
       .map(mapItem);
   }
 
+  listExternalIds(subscriptionId: string): string[] {
+    return this.database
+      .query<{ external_id: string }, [string]>(
+        "SELECT external_id FROM items WHERE subscription_id = ?",
+      )
+      .all(subscriptionId)
+      .map((row) => row.external_id);
+  }
+
   listTimelinePage(
     limit = 100,
     subscriptionId?: string,

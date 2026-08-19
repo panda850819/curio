@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { createApp } from "../../../src/app/create-app.ts";
 import { migrate } from "../../../src/db/migrations.ts";
+import { ItemRepository } from "../../../src/db/repositories.ts";
 import type { ProbeHttpClient } from "../../../src/probe/types.ts";
 import { normalizeYoutubeFeed } from "../../../src/sources/youtube/normalize.ts";
 
@@ -19,41 +20,89 @@ function feed(ids: string[]): string {
     .join("")}</feed>`;
 }
 
-function harness(initial: string) {
+function channelPage(ids: string[]): string {
+  const contents = ids.map((id) => ({
+    richItemRenderer: {
+      content: {
+        lockupViewModel: {
+          contentId: id,
+          contentType: "LOCKUP_CONTENT_TYPE_VIDEO",
+          metadata: { lockupMetadataViewModel: { title: { content: `Video ${id}` } } },
+        },
+      },
+    },
+  }));
+  const data = {
+    contents: {
+      twoColumnBrowseResultsRenderer: {
+        tabs: [{ tabRenderer: { content: { richGridRenderer: { contents } } } }],
+      },
+    },
+  };
+  return `<html><script>var ytInitialData = ${JSON.stringify(data)};</script></html>`;
+}
+
+function harness(initial: string, legacy = false) {
   const database = new Database(":memory:", { strict: true });
   database.exec("PRAGMA foreign_keys = ON;");
   migrate(database, migrationsPath);
   let body = initial;
   let status = 200;
+  let pageStatus = 404;
+  let pageBody = "";
+  let queuedStatuses: number[] = [];
+  let requestCount = 0;
   const client: ProbeHttpClient = {
-    get: async (url) => ({
-      url,
-      status,
-      headers: {
-        get: (name: string) => {
-          if (name === "content-type") return "application/atom+xml";
-          if (name === "etag") return '"youtube-v1"';
-          return null;
+    get: async (url) => {
+      requestCount += 1;
+      const isPage = url.includes("/channel/");
+      const responseStatus = isPage ? pageStatus : (queuedStatuses.shift() ?? status);
+      return {
+        url,
+        status: responseStatus,
+        headers: {
+          get: (name: string) => {
+            if (name === "content-type") {
+              return isPage ? "text/html; charset=utf-8" : "application/atom+xml";
+            }
+            if (name === "etag") return '"youtube-v1"';
+            return null;
+          },
         },
-      },
-      body: new TextEncoder().encode(body),
-    }),
+        body: new TextEncoder().encode(isPage ? pageBody : body),
+      };
+    },
   };
-  const app = createApp({ database, migrationsPath, probeClient: client, now: () => 1_000 });
+  const app = createApp({
+    database,
+    migrationsPath,
+    probeClient: client,
+    now: () => 1_000,
+  });
+  const itemRepository = new ItemRepository(database);
   const destination = app.services.destinations.create({
     destinationKey: "reading-room",
     kind: "telegram",
     config: { chatId: "@room" },
   });
   const subscription = app.services.subscriptions.follow({
-    candidate: {
-      adapter: "youtube",
-      format: "youtube",
-      sourceUrl: feedUrl,
-      sourceKey: channelId,
-      title: "Curio Channel",
-      discoveredVia: "direct",
-    },
+    candidate: legacy
+      ? {
+          adapter: "rss",
+          format: "atom",
+          sourceUrl: feedUrl,
+          sourceKey: feedUrl,
+          title: "Curio Channel",
+          discoveredVia: "direct",
+        }
+      : {
+          adapter: "youtube",
+          format: "youtube",
+          sourceUrl: feedUrl,
+          sourceKey: channelId,
+          title: "Curio Channel",
+          discoveredVia: "direct",
+        },
     intervalMinutes: 60,
     metadata: { backfillLimit: 2, initialDeliveryLimit: 1 },
   }).subscription;
@@ -69,6 +118,26 @@ function harness(initial: string) {
     setNotModified() {
       status = 304;
     },
+    setPage(next: string, nextStatus = 200) {
+      pageBody = next;
+      pageStatus = nextStatus;
+    },
+    seedExternalId(externalId: string) {
+      itemRepository.recordPoll({
+        subscriptionId: subscription.id,
+        items: [{ externalId }],
+        cursor: {},
+        polledAt: 900,
+        nextPollAt: 1_000,
+        deliveryExternalIds: [],
+      });
+    },
+    setStatuses(next: number[]) {
+      queuedStatuses = [...next];
+    },
+    get requestCount() {
+      return requestCount;
+    },
   };
 }
 
@@ -82,6 +151,77 @@ describe("YouTube normalization and adapter", () => {
       title: "Video video-1",
       metadata: { source: "youtube", videoId: "video-1" },
     });
+  });
+
+  test("falls back to the channel page when the feed returns HTTP 400", async () => {
+    const context = harness(feed(["video-1"]));
+    context.setStatuses([400]);
+    context.setPage(channelPage(["video-1", "video-2"]));
+
+    const result = await context.app.services.subscriptions.poll(context.subscription.id);
+
+    expect(result.status).toBe("fetched");
+    expect(context.requestCount).toBe(2);
+    expect(
+      context.app.services.subscriptions.listItemsPage(20, context.subscription.id).items,
+    ).toHaveLength(2);
+    expect(context.app.services.subscriptions.get(context.subscription.id)).toMatchObject({
+      consecutiveFailures: 0,
+      lastError: null,
+    });
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("routes legacy RSS YouTube subscriptions through the channel page fallback", async () => {
+    const context = harness(feed(["video-1"]), true);
+    context.setStatuses([404]);
+    context.setPage(channelPage(["video-1"]));
+
+    const result = await context.app.services.subscriptions.poll(context.subscription.id);
+
+    expect(result.status).toBe("fetched");
+    expect(
+      context.app.services.subscriptions.listItemsPage(20, context.subscription.id).items,
+    ).toHaveLength(1);
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("reuses legacy prefixed IDs without creating duplicate items", async () => {
+    const context = harness(feed(["video-1"]), true);
+    context.seedExternalId("yt:video:video-1");
+    context.setStatuses([404]);
+    context.setPage(channelPage(["video-1"]));
+
+    const result = await context.app.services.subscriptions.poll(context.subscription.id);
+
+    expect(result).toMatchObject({ insertedItems: 0, duplicateItems: 1 });
+    expect(
+      context.app.services.subscriptions.listItemsPage(20, context.subscription.id).items,
+    ).toHaveLength(1);
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("keeps a persistent failure when the feed and channel page both fail", async () => {
+    const context = harness(feed(["video-1"]));
+    context.setStatuses([404]);
+
+    await expect(context.app.services.subscriptions.poll(context.subscription.id)).rejects.toThrow(
+      "HTTP 404",
+    );
+    expect(context.requestCount).toBe(2);
+    expect(context.app.services.subscriptions.get(context.subscription.id)).toMatchObject({
+      consecutiveFailures: 1,
+      lastError: expect.stringContaining("HTTP 404"),
+    });
+
+    context.app.close();
+    context.database.close();
   });
 
   test("applies first-poll backfill, incremental IDs, conditional requests, and idempotency", async () => {
