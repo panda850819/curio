@@ -6,6 +6,7 @@ import { migrate } from "../src/db/migrations.ts";
 import type { TelegramTransport } from "../src/delivery/telegram.ts";
 import { createHttpHandler, handleRequest } from "../src/http.ts";
 import type { ProbeHttpClient } from "../src/probe/types.ts";
+import { createEmailWebhookHandler } from "../src/sources/email/webhook.ts";
 
 const migrationsPath = resolve(import.meta.dir, "../migrations");
 const feedBody = `<rss version="2.0"><channel><title>Example</title><item><guid>item-1</guid><title>Example item</title><link>https://example.com/item-1</link><description>New item</description></item></channel></rss>`;
@@ -18,7 +19,7 @@ function jsonRequest(url: string, method: string, body: unknown): Request {
   });
 }
 
-function apiHarness() {
+function apiHarness(withEmail = false) {
   const database = new Database(":memory:", { strict: true });
   database.exec("PRAGMA foreign_keys = ON;");
   migrate(database, migrationsPath);
@@ -56,10 +57,17 @@ function apiHarness() {
     probeClient,
     telegram: { botToken: "secret-bot-token", chatId: "@default" },
     telegramTransport,
+    email: withEmail
+      ? { address: "reader@inbox.example.com", webhookSecret: "email-secret" }
+      : undefined,
   });
   const events: unknown[] = [];
   const handler = createHttpHandler({
     services: app.services,
+    emailWebhook:
+      withEmail && app.emailSource
+        ? createEmailWebhookHandler("email-secret", app.emailSource)
+        : undefined,
     log: (event) => events.push(event),
   });
   return {
@@ -233,6 +241,41 @@ describe("HTTP handler", () => {
     });
     expect(context.app.deliveryRepository.list()).toHaveLength(1);
     expect(context.app.deliveryRepository.list()[0]?.destinationId).toBe(destinationId);
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("exposes the shared email inbox and accepts inbound mail", async () => {
+    const context = apiHarness(true);
+    const inbox = await context.request(new Request("http://curio.test/api/v1/email/inbox"));
+    expect(inbox.status).toBe(200);
+    expect(await inbox.json()).toMatchObject({
+      data: {
+        address: "reader@inbox.example.com",
+        subscription: { adapter: "email", sourceKey: "shared-inbox" },
+      },
+    });
+
+    const inbound = await context.request(
+      new Request("http://curio.test/email/inbound", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-curio-email-secret": "email-secret",
+        },
+        body: JSON.stringify({
+          to: "reader@inbox.example.com",
+          from: "news@example.com",
+          subject: "Inbox item",
+          messageId: "<inbox-item@example.com>",
+          text: "Hello from email",
+        }),
+      }),
+    );
+    expect(inbound.status).toBe(200);
+    expect(await inbound.json()).toEqual({ ok: true, status: "inserted" });
+    expect(context.app.services.subscriptions.listItemsPage(20).items).toHaveLength(1);
 
     context.app.close();
     context.database.close();

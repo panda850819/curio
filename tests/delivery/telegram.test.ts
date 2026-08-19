@@ -109,6 +109,15 @@ describe("Telegram rendering", () => {
     expect(message).toContain("x".repeat(100));
   });
 
+  test("includes shared inbox content in the destination message", () => {
+    const email = payload();
+    email.subscription.adapter = "email";
+    if (!email.item) throw new Error("Expected item payload");
+    email.item.contentText = "Newsletter body";
+    const message = renderTelegramMessage(email);
+    expect(message).toContain("Newsletter body");
+  });
+
   test("uses deterministic fallbacks without broken markup", () => {
     const fallback = payload();
     if (!fallback.item) throw new Error("Expected item payload");

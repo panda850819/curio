@@ -29,6 +29,43 @@ Bot 控制面使用 `X-Telegram-Bot-Api-Secret-Token` 驗證。只接受 `applic
 
 Webhook 由 `bun run telegram:webhook` 獨立設定，正常 startup 不會呼叫 `setWebhook`。`TELEGRAM_ALLOWED_USER_IDS` 必填，`TELEGRAM_ALLOWED_CHAT_IDS` 可選。conversation state 與 processed update IDs 存在 SQLite。
 
+## Shared Email Inbox
+
+設定 `EMAIL_INBOUND_ADDRESS` 與 `EMAIL_INBOUND_WEBHOOK_SECRET` 後，Curio 會建立單一 `Email Inbox` subscription。管理介面會顯示這個地址，電子報可以直接寄到這裡，也可以由其他信箱轉寄。
+
+### `GET /api/v1/email/inbox`
+
+回傳共用收件地址與對應 subscription。Email inbox 未設定時回 `404`。
+
+```json
+{
+  "data": {
+    "address": "reader@inbox.example.com",
+    "subscription": {}
+  }
+}
+```
+
+### `POST /email/inbound`
+
+只接受 `application/json` 與 `X-Curio-Email-Secret`。request body 上限為 `1 MiB`。郵件服務需將原始信件轉成下列 normalized payload：
+
+```json
+{
+  "to": "reader@inbox.example.com",
+  "messageId": "<message-1@example.com>",
+  "from": "Newsletter <news@example.com>",
+  "subject": "Weekly note",
+  "date": "2026-01-02T03:04:05Z",
+  "text": "A short note",
+  "html": "<p>A short note</p>",
+  "url": "https://example.com/article",
+  "headers": { "List-ID": "news.example.com" }
+}
+```
+
+`to` 也可以寫成 `recipient`。`subject` 或 `text`／`html` 至少要提供一項。Curio 會將信件轉成 canonical item，保留純文字內容，不自動下載附件。相同訊息重送時回 `{ "ok": true, "status": "duplicate" }`，不會新增第二筆 item。
+
 ## 分頁
 
 List endpoint 接受：

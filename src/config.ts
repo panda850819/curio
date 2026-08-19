@@ -3,7 +3,12 @@ export interface Config {
   port: number;
   databasePath: string;
   telegram: { botToken: string; chatId: string } | null;
+  email: { address: string; webhookSecret: string } | null;
   x: { authToken: string; ct0: string } | null;
+}
+
+function isEmailAddress(value: string): boolean {
+  return value.length <= 320 && /^[^\s@]+@[^\s@]+$/u.test(value);
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -27,6 +32,20 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be configured together");
   }
 
+  const emailAddress = env.EMAIL_INBOUND_ADDRESS?.trim() || "";
+  const emailWebhookSecret = env.EMAIL_INBOUND_WEBHOOK_SECRET?.trim() || "";
+  if (Boolean(emailAddress) !== Boolean(emailWebhookSecret)) {
+    throw new Error(
+      "EMAIL_INBOUND_ADDRESS and EMAIL_INBOUND_WEBHOOK_SECRET must be configured together",
+    );
+  }
+  if (emailAddress && !isEmailAddress(emailAddress)) {
+    throw new Error("EMAIL_INBOUND_ADDRESS must be a valid email address");
+  }
+  if (emailWebhookSecret.length > 256) {
+    throw new Error("EMAIL_INBOUND_WEBHOOK_SECRET must be at most 256 characters");
+  }
+
   const xAuthToken = env.X_AUTH_TOKEN?.trim() || "";
   const xCt0 = env.X_CT0?.trim() || "";
   if (Boolean(xAuthToken) !== Boolean(xCt0)) {
@@ -38,6 +57,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     port,
     databasePath,
     telegram: botToken ? { botToken, chatId } : null,
+    email: emailAddress
+      ? { address: emailAddress.toLowerCase(), webhookSecret: emailWebhookSecret }
+      : null,
     x: xAuthToken ? { authToken: xAuthToken, ct0: xCt0 } : null,
   };
 }

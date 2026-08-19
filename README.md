@@ -60,6 +60,12 @@ TELEGRAM_WEBHOOK_URL=https://example.com/telegram/webhook bun run telegram:webho
 
 Webhook 會接收 `message`、`callback_query`、`channel_post` 與 `edited_channel_post`。Bot 支援貼 URL、`/subscriptions`、`/status` 與 `/cancel`。部署驗證可執行 `deploy/telegram-webhook-smoke.sh`。公開 channel 預設使用 HTML scraper，不需要 Bot 加入來源頻道。
 
+## 共用電子報收件匣
+
+設定 `EMAIL_INBOUND_ADDRESS` 與 `EMAIL_INBOUND_WEBHOOK_SECRET` 後，Curio 會建立單一 `Email Inbox` subscription，讓所有電子報與轉寄信件共用一個收件地址。使用者可以把地址填入電子報訂閱表單，或將既有信件轉寄到這個地址。每封信會變成一筆 canonical item，沿用既有 route 與 delivery 流程。
+
+Curio 不直接執行 SMTP server。郵件服務收到信件後，應將信件內容轉成 JSON，並以 `X-Curio-Email-Secret` 呼叫 `POST /email/inbound`。同一個 `Message-ID` 會去重；沒有 `Message-ID` 時使用寄件者、主旨、日期與內容建立 hash。Curio 初期只保存純文字內容，不自動下載附件。Cloudflare Worker scaffold 位於 [`cloudflare/email-worker/`](cloudflare/email-worker/)，可接上 `reader@pdzeng.com`。
+
 ## 產品方向
 
 ### 建立訂閱
@@ -130,6 +136,8 @@ Persistent Volume
 1. `probe(input)`：判斷 URL 可以建立哪些訂閱；
 2. `poll(subscription)`：根據 cursor 取得增量內容。
 
+事件型來源也可以直接接收外部事件，例如 Telegram webhook 與 Email inbound，不經過 scheduler poll。
+
 第一批可考慮：
 
 - RSS / Atom；
@@ -186,7 +194,8 @@ CLI、HTTP API 與未來的 App 應共用同一套核心模組與資料庫，不
 5. 定期取得增量內容；
 6. SQLite 去重與持久化 cursor；
 7. Telegram 投遞、重試與狀態查詢；
-8. Docker 部署與資料備份。
+8. Docker 部署與資料備份；
+9. 共用 Email Inbox 與電子報 inbound 收件。
 
 暫緩：
 
@@ -306,7 +315,7 @@ X profile URL 會建立 `x` subscription。Adapter 透過固定 argv 執行 pin 
 
 ### YouTube Source Adapter
 
-YouTube channel、handle、video URL 與 direct channel Atom feed 都會解析成 channel ID，subscription source key 使用 channel ID，因此 handle 改名不會建立 duplicate subscription。日常 poll 只讀官方 Atom feed；video ID 作為 immutable external ID，沿用 ETag／Last-Modified、backfill 與 initial delivery policy。
+YouTube channel、handle、video URL 與 direct channel Atom feed 都會解析成 channel ID，subscription source key 使用 channel ID，因此 handle 改名不會建立 duplicate subscription。日常 poll 優先讀官方 Atom feed；YouTube feed 回傳 `400`、`404` 或 `5xx` 時改讀 channel `/videos` page，讓既有 subscription 不需要重建。video ID 作為 immutable external ID，沿用 ETag／Last-Modified、backfill 與 initial delivery policy。
 
 ### Telegram delivery
 
@@ -328,6 +337,8 @@ Telegram delivery 對每個 destination 依 `publishedAt` 由舊到新排序並�
 | `DATABASE_PATH` | `./data/curio.db` | SQLite database path；container 使用 `/data/curio.db` |
 | `TELEGRAM_BOT_TOKEN` | 未設定 | Telegram Bot token；必須與 chat ID 同時設定 |
 | `TELEGRAM_CHAT_ID` | 未設定 | Telegram channel username 或 numeric chat ID |
+| `EMAIL_INBOUND_ADDRESS` | 未設定 | 共用電子報收件地址；必須與 webhook secret 同時設定 |
+| `EMAIL_INBOUND_WEBHOOK_SECRET` | 未設定 | `POST /email/inbound` 的 shared secret；必須與收件地址同時設定 |
 | `X_AUTH_TOKEN` | 未設定 | X `auth_token` session cookie；必須與 `X_CT0` 同時設定 |
 | `X_CT0` | 未設定 | X CSRF session cookie；必須與 `X_AUTH_TOKEN` 同時設定 |
 | `CURIO_NETWORK` | `personal-infra_private` | Compose 使用的既有 external Docker network |

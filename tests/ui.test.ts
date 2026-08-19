@@ -21,11 +21,19 @@ function harness(
       ),
     }),
   },
+  withEmail = false,
 ) {
   const database = new Database(":memory:", { strict: true });
   database.exec("PRAGMA foreign_keys = ON;");
   migrate(database, migrationsPath);
-  const app = createApp({ database, migrationsPath, probeClient });
+  const app = createApp({
+    database,
+    migrationsPath,
+    probeClient,
+    email: withEmail
+      ? { address: "reader@inbox.example.com", webhookSecret: "email-secret" }
+      : undefined,
+  });
   const ui = createUiHandler(app, { now: () => 1_000 });
   const http = createHttpHandler({ services: app.services, ui, log: () => undefined });
   return { app, database, ui, http };
@@ -74,6 +82,19 @@ describe("Curio Web UI", () => {
     const missing = await context.http(new Request("http://curio.test/does-not-exist"));
     expect(missing.status).toBe(404);
     expect(await missing.text()).toContain("找不到這個頁面");
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("shows the shared email inbox on the add subscription screen", async () => {
+    const context = harness(undefined, true);
+    const response = await context.ui(new Request("http://curio.test/subscriptions/new"));
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("共用電子報收件匣");
+    expect(html).toContain("reader@inbox.example.com");
+    expect(html).toContain("管理 Email Inbox");
 
     context.app.close();
     context.database.close();

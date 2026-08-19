@@ -8,6 +8,7 @@ import { loadConfig } from "./config.ts";
 import { TelegramDestinationAdapter } from "./delivery/telegram.ts";
 import { DeliveryWorker } from "./delivery/worker.ts";
 import { createHttpHandler } from "./http.ts";
+import { createEmailWebhookHandler, type EmailWebhookHandler } from "./sources/email/index.ts";
 import { createUiHandler } from "./ui/handler.ts";
 
 const config = loadConfig();
@@ -18,8 +19,10 @@ const app = createApp({
   migrationsPath,
   x: config.x,
   telegram: config.telegram,
+  email: config.email,
 });
 let telegramWebhook: TelegramWebhookHandler | undefined;
+let emailWebhook: EmailWebhookHandler | undefined;
 const webhookSecret = botSettings.webhookSecret;
 if (config.telegram && webhookSecret) {
   const botApi = new FetchTelegramBotApi(config.telegram.botToken);
@@ -33,6 +36,9 @@ if (config.telegram && webhookSecret) {
     app.telegramSource,
   );
   telegramWebhook = createTelegramWebhookHandler(webhookSecret, control);
+}
+if (config.email && app.emailSource) {
+  emailWebhook = createEmailWebhookHandler(config.email.webhookSecret, app.emailSource);
 }
 
 const ui = createUiHandler(app);
@@ -60,6 +66,7 @@ const server = Bun.serve({
   fetch: createHttpHandler({
     services: app.services,
     telegramWebhook,
+    emailWebhook,
     ui,
     log: (event) => console.log(JSON.stringify(event)),
   }),

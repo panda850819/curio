@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "curio-email-inbound",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-04-01",
+  "vars": {
+    "CURIO_INBOUND_URL": "https://curio.pdzeng.com/email/inbound"
+  },
+  "addresses": ["reader@pdzeng.com"]
+}

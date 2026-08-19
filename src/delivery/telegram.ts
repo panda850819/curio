@@ -111,7 +111,8 @@ function publicationLine(payload: DeliveryPayload): string {
 function telegramItemContent(payload: DeliveryPayload): string {
   if (
     (payload.subscription.adapter !== "telegram" &&
-      payload.subscription.adapter !== "telegram_html") ||
+      payload.subscription.adapter !== "telegram_html" &&
+      payload.subscription.adapter !== "email") ||
     !payload.item
   )
     return "";

@@ -11,6 +11,7 @@ import type { TelegramTransport } from "../delivery/telegram.ts";
 import { SafeHttpClient, SystemResolver } from "../probe/index.ts";
 import type { ProbeHttpClient } from "../probe/types.ts";
 import { PollCoordinator, PollScheduler, type SourcePoller } from "../scheduler.ts";
+import { EmailSourceAdapter } from "../sources/email/index.ts";
 import { HtmlSourceAdapter } from "../sources/html/adapter.ts";
 import { SourceRouter } from "../sources/router.ts";
 import { RssSourceAdapter } from "../sources/rss/index.ts";
@@ -35,6 +36,7 @@ export interface CreateAppOptions {
   migrationsPath?: string;
   x?: Config["x"];
   telegram?: Config["telegram"];
+  email?: Config["email"];
   telegramTransport?: TelegramTransport;
   probeClient?: ProbeHttpClient;
   xClient?: XbirdTimelineClient;
@@ -52,6 +54,7 @@ export interface CurioApplication {
   readonly telegramBotRepository: TelegramBotRepository;
   readonly telegramSource: TelegramSourceAdapter;
   readonly telegramHtmlSource: TelegramHtmlSourceAdapter;
+  readonly emailSource: EmailSourceAdapter | null;
   readonly appliedMigrations: number;
   close(): void;
 }
@@ -85,6 +88,10 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
   const telegramSource = new TelegramSourceAdapter(subscriptions, items, now);
   const telegramHtmlSource = new TelegramHtmlSourceAdapter(probeClient, subscriptions, items, now);
   const xAdapter = new XSourceAdapter(createXClient(options), subscriptions, items, now);
+  const emailSource = options.email
+    ? new EmailSourceAdapter(options.email, subscriptions, items, now)
+    : null;
+  emailSource?.ensureSubscription();
   const pollers: Record<string, SourcePoller> = {
     html: options.sourcePollers?.html ?? htmlAdapter,
     rss: options.sourcePollers?.rss ?? rssAdapter,
@@ -92,6 +99,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
     youtube: options.sourcePollers?.youtube ?? youtubeAdapter,
     telegram: telegramSource,
     telegram_html: telegramHtmlSource,
+    ...(emailSource ? { email: emailSource } : {}),
   };
   const router = new SourceRouter(subscriptions, pollers);
   const coordinator = new PollCoordinator(router);
@@ -100,6 +108,9 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
 
   const services: ApplicationServices = {
     probe: probeService,
+    email: {
+      get: () => emailSource?.getInbox() ?? null,
+    },
     subscriptions: new DefaultSubscriptionService(
       subscriptions,
       coordinator,
@@ -127,6 +138,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
     telegramBotRepository,
     telegramSource,
     telegramHtmlSource,
+    emailSource,
     appliedMigrations,
     close() {
       if (closed || !ownsDatabase) return;
