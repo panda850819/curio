@@ -1,5 +1,5 @@
-import PostalMime from "postal-mime";
 import type { Email } from "postal-mime";
+import PostalMime from "postal-mime";
 
 const MAX_RAW_BYTES = 2 * 1024 * 1024;
 const MAX_TEXT_LENGTH = 128 * 1024;
