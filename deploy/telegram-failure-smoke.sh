@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT=${CURIO_ROOT:-/opt/curio}
 DATABASE="$ROOT/data/curio.db"
 marker="deployment-smoke-$(date -u +%Y%m%dT%H%M%SZ)"
+route_id="${marker}-route"
 now_ms=$(( $(date +%s) * 1000 ))
 source_url="https://example.com/${marker}.xml"
 
@@ -12,6 +13,7 @@ cleanup() {
   local cleanup_ms
   cleanup_ms=$(( $(date +%s) * 1000 ))
   sqlite3 "$DATABASE" "
+    DELETE FROM routes WHERE id = '$route_id';
     UPDATE subscriptions
       SET enabled = 0, deleted_at = COALESCE(deleted_at, $cleanup_ms), updated_at = $cleanup_ms
       WHERE id = '$marker';
@@ -26,6 +28,15 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$ROOT"
+destination_id=$(sqlite3 "$DATABASE" "
+  SELECT id FROM destinations
+  WHERE kind = 'telegram' AND enabled = 1
+  ORDER BY id LIMIT 1;")
+if [[ -z "$destination_id" ]]; then
+  echo "an enabled Telegram destination is required for the failure smoke" >&2
+  exit 1
+fi
+
 sqlite3 "$DATABASE" <<SQL
 INSERT INTO subscriptions (
   id, adapter, source_key, source_url, title, enabled, metadata_json,
@@ -33,6 +44,11 @@ INSERT INTO subscriptions (
 ) VALUES (
   '$marker', 'rss', '$marker', '$source_url', 'Curio deployment smoke', 1, '{}',
   9999999999999, 60, $now_ms, $now_ms
+);
+INSERT INTO routes (
+  id, subscription_id, destination_id, enabled, config_json, created_at, updated_at
+) VALUES (
+  '$route_id', '$marker', '$destination_id', 1, '{}', $now_ms, $now_ms
 );
 SQL
 
