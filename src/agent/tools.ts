@@ -199,6 +199,34 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
       },
     ),
     tool(
+      "curio_subscribe_source",
+      "Probe one source URL and create or resolve its subscription.",
+      "required",
+      {
+        type: "object",
+        properties: {
+          url: stringSchema,
+          pollIntervalMinutes: { type: "integer", minimum: 5, maximum: 10080 },
+          metadata: { type: "object" },
+          confirm: confirmationSchema,
+        },
+        required: ["url", "confirm"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        requireConfirmation(argumentsValue, "curio_subscribe_source");
+        const body: Record<string, unknown> = {
+          url: requiredString(argumentsValue, "url"),
+        };
+        const interval = optionalInteger(argumentsValue, "pollIntervalMinutes", 5, 10_080);
+        const metadata = argumentsValue.metadata;
+        if (interval !== undefined) body.pollIntervalMinutes = interval;
+        if (metadata !== undefined) body.metadata = requiredObject(argumentsValue, "metadata");
+        return client.postResponse("/api/v1/subscriptions/ensure", body);
+      },
+    ),
+    tool(
       "curio_create_subscription",
       "Verify a candidate and create or resolve a subscription.",
       "required",

@@ -17,6 +17,7 @@ export const AGENT_MANIFEST = {
       "curio_get_manifest",
       "curio_get_health",
       "curio_probe_source",
+      "curio_subscribe_source",
       "curio_list_sources",
       "curio_get_source",
       "curio_list_items",
@@ -43,6 +44,7 @@ export const AGENT_MANIFEST = {
     confirmationRequiredFor: ["subscriptions.remove", "routes.remove"],
     confirmationRecommendedFor: [
       "subscriptions.create",
+      "subscriptions.ensure",
       "subscriptions.update",
       "destinations.create",
       "destinations.update",
@@ -51,7 +53,7 @@ export const AGENT_MANIFEST = {
       "routes.update",
       "deliveries.retry",
     ],
-    idempotentOperations: ["subscriptions.create", "subscriptions.poll"],
+    idempotentOperations: ["subscriptions.create", "subscriptions.ensure", "subscriptions.poll"],
     secretsNeverReturned: [
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
@@ -81,6 +83,21 @@ export const AGENT_MANIFEST = {
       sideEffects: "external_request",
       request: { body: { required: ["url"], optional: [] } },
       description: "Probe a public URL and return validated subscription candidates.",
+    },
+    {
+      id: "subscriptions.ensure",
+      method: "POST",
+      path: "/api/v1/subscriptions/ensure",
+      class: "mutate",
+      confirmation: "explicit",
+      sideEffects: "external_request_and_database",
+      request: {
+        body: {
+          required: ["url"],
+          optional: ["pollIntervalMinutes", "intervalMinutes", "metadata"],
+        },
+      },
+      description: "Probe one URL and create or resolve a single subscription candidate.",
     },
     {
       id: "subscriptions.list",

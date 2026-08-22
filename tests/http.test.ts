@@ -103,6 +103,7 @@ describe("HTTP handler", () => {
     expect(response.status).toBe(200);
     expect(body.data).toMatchObject({ manifestVersion: "1", service: "curio" });
     expect(body.data.operations.map((operation) => operation.id)).toContain("probes.create");
+    expect(body.data.operations.map((operation) => operation.id)).toContain("subscriptions.ensure");
     expect(body.data.operations.map((operation) => operation.id)).toContain("routes.remove");
     expect(body.data.operations.find((operation) => operation.id === "probes.create")?.path).toBe(
       "/api/v1/probes",
@@ -242,6 +243,52 @@ describe("HTTP handler", () => {
     });
     expect(context.app.deliveryRepository.list()).toHaveLength(1);
     expect(context.app.deliveryRepository.list()[0]?.destinationId).toBe(destinationId);
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("creates or resolves a subscription directly from a URL", async () => {
+    const context = apiHarness();
+    const first = await context.request(
+      jsonRequest("http://curio.test/api/v1/subscriptions/ensure", "POST", {
+        url: "https://example.com/feed",
+        pollIntervalMinutes: 30,
+        metadata: { backfillLimit: 10 },
+      }),
+    );
+    expect(first.status).toBe(201);
+    const firstBody = (await first.json()) as {
+      data: {
+        subscription: {
+          id: string;
+          pollIntervalMinutes: number;
+          metadata: Record<string, unknown>;
+        };
+        disposition: string;
+        candidate: { adapter: string; sourceUrl: string };
+        warnings: unknown[];
+      };
+    };
+    expect(firstBody.data).toMatchObject({
+      disposition: "created",
+      candidate: { adapter: "rss", sourceUrl: "https://example.com/feed" },
+      warnings: [],
+      subscription: { pollIntervalMinutes: 30, metadata: { backfillLimit: 10 } },
+    });
+
+    const second = await context.request(
+      jsonRequest("http://curio.test/api/v1/subscriptions/ensure", "POST", {
+        url: "https://example.com/feed",
+      }),
+    );
+    expect(second.status).toBe(200);
+    expect(await second.json()).toMatchObject({
+      data: {
+        disposition: "existing",
+        subscription: { id: firstBody.data.subscription.id },
+      },
+    });
 
     context.app.close();
     context.database.close();

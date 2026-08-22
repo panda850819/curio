@@ -183,6 +183,19 @@ function optionalInteger(body: JsonObject, field: string): number | undefined {
   return value;
 }
 
+function parsePollInterval(body: JsonObject): number {
+  const pollIntervalMinutes = optionalInteger(body, "pollIntervalMinutes");
+  const intervalMinutes = optionalInteger(body, "intervalMinutes");
+  if (
+    pollIntervalMinutes !== undefined &&
+    intervalMinutes !== undefined &&
+    pollIntervalMinutes !== intervalMinutes
+  ) {
+    throw new AppError("validation", "conflicting_fields", "Poll interval fields must match");
+  }
+  return pollIntervalMinutes ?? intervalMinutes ?? 60;
+}
+
 function isJsonValue(value: unknown): value is JsonValue {
   if (value === null || typeof value === "string" || typeof value === "boolean") return true;
   if (typeof value === "number") return Number.isFinite(value);
@@ -391,6 +404,17 @@ async function handleApiRequest(
   }
 
   if (resource === "subscriptions") {
+    if (id === "ensure" && segments.length === 4) {
+      if (request.method !== "POST") methodNotAllowed();
+      const body = await readJsonBody(request);
+      rejectUnknownFields(body, ["url", "pollIntervalMinutes", "intervalMinutes", "metadata"]);
+      const result = await services.subscriptions.followFromUrl({
+        url: requiredString(body, "url"),
+        intervalMinutes: parsePollInterval(body),
+        metadata: optionalJsonValue(body, "metadata"),
+      });
+      return successResponse(result, result.disposition === "created" ? 201 : 200);
+    }
     if (id === undefined && segments.length === 3) {
       if (request.method === "GET") {
         return successResponse(services.subscriptions.listPage(parseLimit(url), parseCursor(url)));
@@ -403,17 +427,7 @@ async function handleApiRequest(
         "intervalMinutes",
         "metadata",
       ]);
-      const pollIntervalMinutes =
-        optionalInteger(body, "pollIntervalMinutes") ??
-        optionalInteger(body, "intervalMinutes") ??
-        60;
-      if (
-        body.pollIntervalMinutes !== undefined &&
-        body.intervalMinutes !== undefined &&
-        body.pollIntervalMinutes !== body.intervalMinutes
-      ) {
-        throw new AppError("validation", "conflicting_fields", "Poll interval fields must match");
-      }
+      const pollIntervalMinutes = parsePollInterval(body);
       const candidate = parseCandidate(body.candidate);
       const metadata = optionalJsonValue(body, "metadata");
       const result = await services.subscriptions.followVerified({
