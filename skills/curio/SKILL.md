@@ -50,13 +50,14 @@ CLI 的 mutation 若由 agent 代為執行，也要先取得使用者確認；`-
 ### 建立來源追蹤
 
 1. `GET /api/v1/agent/manifest`
-2. `POST /api/v1/probes`，body 使用 `{ "url": "..." }`。
-3. 檢查 candidates 的 `adapter`、`format`、`title`、`sourceUrl` 與 `sourceKey`。
-4. 向使用者說明即將追蹤的來源、輪詢間隔、回填數量與投遞目的地；建立訂閱前取得確認。
-5. `POST /api/v1/subscriptions`，傳入 probe 回傳的完整 candidate。
-6. `POST /api/v1/routes` 連接已確認的 destination。
-7. `POST /api/v1/subscriptions/:id/poll`，確認最新內容、inserted items 與 delivery 狀態。
-8. 若需要驗證投遞目的地，先取得確認後呼叫 `POST /api/v1/destinations/:id/verify`，只使用 server 回傳的 sanitized metadata。
+2. 對使用者已明確指定「訂閱這個 URL」的單一來源，先說明即將追蹤的來源、輪詢間隔、回填數量與投遞目的地並取得確認。
+3. `POST /api/v1/subscriptions/ensure`，body 使用 `{ "url": "..." }`，可選 `pollIntervalMinutes`、`intervalMinutes` 與 `metadata`。服務會只 probe 一次；單一 candidate 直接建立或回傳 `disposition: "existing"`。
+4. 若回傳零 candidate 或多個 candidate，讀取 `error.code` 與 `error.details.candidates`；多 candidate 必須先讓使用者選擇，再使用 `POST /api/v1/subscriptions` 傳入完整 candidate。
+5. `POST /api/v1/routes` 只在使用者明確要求投遞且 destination 已確認時呼叫。
+6. `POST /api/v1/subscriptions/:id/poll` 只在使用者要求立即抓取或已確認需要驗證時呼叫；它可能建立 items 與 deliveries。
+7. 若需要驗證投遞目的地，先取得確認後呼叫 `POST /api/v1/destinations/:id/verify`，只使用 server 回傳的 sanitized metadata。
+
+低階候選探索仍使用 `POST /api/v1/probes`，回傳後檢查 candidates 的 `adapter`、`format`、`title`、`sourceUrl` 與 `sourceKey`。
 
 重複建立相同 subscription 時，接受服務回傳的 `disposition: "existing"`，不要自行建立第二筆。
 
@@ -75,7 +76,7 @@ CLI 的 mutation 若由 agent 代為執行，也要先取得使用者確認；`-
 
 ### Mutation 與確認
 
-- `subscriptions.create`、`subscriptions.update`、`destinations.create`、`destinations.update`、`destinations.verify`、`routes.create`、`routes.update`、`deliveries.retry`：先說明變更並取得明確確認。
+- `subscriptions.ensure`、`subscriptions.create`、`subscriptions.update`、`destinations.create`、`destinations.update`、`destinations.verify`、`routes.create`、`routes.update`、`deliveries.retry`：先說明變更並取得明確確認。
 - `subscriptions.remove` 與 `routes.remove`：一定要明確確認。不要用模糊的「看起來可以」代替確認。
 - `subscriptions.poll` 會產生外部請求，並可能建立 delivery；來源已確認後可以執行。
 - 任何 mutation 失敗時先讀 `error.code`，不要盲目重試。只有服務明確表示可重試時才重試。
@@ -103,7 +104,7 @@ Repository 提供 stdio MCP transport：
 CURIO_AGENT_URL=http://127.0.0.1:3000 bun run agent:mcp
 ```
 
-它只連到既有 Curio HTTP API，不開新的 host port。將 MCP process 放在 Curio container 或同一個 private network；不要把 `CURIO_AGENT_URL` 指向未受保護的公開服務。先呼叫 `curio_get_manifest`，再使用 `curio_probe_source`、`curio_create_subscription`、`curio_create_route`、`curio_poll_source` 與 `curio_verify_destination` 等 tools。
+它只連到既有 Curio HTTP API，不開新的 host port。將 MCP process 放在 Curio container 或同一個 private network；不要把 `CURIO_AGENT_URL` 指向未受保護的公開服務。先呼叫 `curio_get_manifest`；對明確的 URL 訂閱請優先使用 `curio_subscribe_source`，需要檢查候選或處理多候選時再使用 `curio_probe_source` 與 `curio_create_subscription`，其他流程使用 `curio_create_route`、`curio_poll_source` 與 `curio_verify_destination`。
 
 `curio_remove_source`、`curio_remove_route` 與其他標記為需要確認的 tool 必須傳入 `confirm: true`；agent 只能在使用者明確確認後傳入。
 

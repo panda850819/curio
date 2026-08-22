@@ -14,6 +14,8 @@ import { PollAlreadyRunningError, type SourcePoller } from "../scheduler.ts";
 import { AppError } from "./errors.ts";
 import { type Page, pageResult } from "./pagination.ts";
 import type {
+  FollowFromUrlInput,
+  FollowFromUrlResult,
   FollowInput,
   FollowResult,
   ProbeService,
@@ -183,6 +185,40 @@ export class DefaultSubscriptionService implements SubscriptionServiceContract {
       if (!existing) throw error;
       return { subscription: existing, disposition: "existing" };
     }
+  }
+
+  async followFromUrl(input: FollowFromUrlInput): Promise<FollowFromUrlResult> {
+    if (!this.probeService) {
+      throw new AppError("unexpected", "probe_unavailable", "Probe service is unavailable");
+    }
+    const url = requireText(input.url, "source URL");
+    const result = await this.probeService.probe(url);
+    if (result.candidates.length === 0) {
+      throw new AppError(
+        "not_found",
+        "subscription_candidate_not_found",
+        "Probe returned no subscription candidates",
+        { url, warnings: result.warnings },
+      );
+    }
+    if (result.candidates.length > 1) {
+      throw new AppError(
+        "conflict",
+        "subscription_candidates_ambiguous",
+        "Probe returned multiple subscription candidates",
+        { candidates: result.candidates, warnings: result.warnings },
+      );
+    }
+    const candidate = result.candidates[0];
+    if (!candidate) {
+      throw new AppError("unexpected", "probe_invalid_result", "Probe returned an invalid result");
+    }
+    const followed = this.follow({
+      candidate,
+      intervalMinutes: input.intervalMinutes,
+      metadata: input.metadata,
+    });
+    return { ...followed, candidate, warnings: result.warnings };
   }
 
   async followVerified(input: FollowInput): Promise<FollowResult> {

@@ -13,7 +13,7 @@ import type {
   Subscription,
   SubscriptionUpdate,
 } from "../domain/types.ts";
-import type { ProbeResult, SubscriptionCandidate } from "../probe/types.ts";
+import type { ProbeResult, ProbeWarning, SubscriptionCandidate } from "../probe/types.ts";
 import type { SourcePollResult } from "../scheduler.ts";
 import type { EmailInbox } from "../sources/email/types.ts";
 import type { Page } from "./pagination.ts";
@@ -37,8 +37,20 @@ export interface FollowResult {
   disposition: "created" | "existing";
 }
 
+export interface FollowFromUrlInput {
+  url: string;
+  intervalMinutes: number;
+  metadata?: JsonValue;
+}
+
+export interface FollowFromUrlResult extends FollowResult {
+  candidate: SubscriptionCandidate;
+  warnings: ProbeWarning[];
+}
+
 export interface SubscriptionService {
   follow(input: FollowInput): FollowResult;
+  followFromUrl(input: FollowFromUrlInput): Promise<FollowFromUrlResult>;
   list(limit?: number): Subscription[];
   listPage(limit?: number, cursor?: PageCursor): Page<Subscription>;
   followVerified(input: FollowInput): Promise<FollowResult>;

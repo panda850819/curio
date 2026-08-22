@@ -96,7 +96,7 @@ Cursor 是服務內部的 keyset cursor。不要自行解碼或修改。資料�
 
 `GET /api/v1/agent/manifest` 回傳 agent 可讀的操作清單與安全契約。回應包含 `manifestVersion`、transport envelope、pagination、操作的 HTTP method／path／request fields／side effects，以及需要確認的 mutation 與 destructive operations。Manifest 不包含任何 runtime credentials，並沿用既有 auth guard 與 `X-Request-Id`。
 
-Agent 應先讀取 manifest，再依照 `probe → candidate confirmation → subscription → route → poll → verify` 工作流操作。`cursor` 是 opaque value，不可自行解碼；`subscriptions.remove` 與 `routes.remove` 必須取得明確確認。目的地驗證只回傳 sanitized metadata，不回傳 runtime credential。
+Agent 應先讀取 manifest；對已明確指定的單一 URL 優先使用 `subscriptions.ensure`，需要挑選 candidate 時才使用 `probe → candidate confirmation → subscription` 工作流，再依需求建立 route、poll 或 verify。`cursor` 是 opaque value，不可自行解碼；`subscriptions.remove` 與 `routes.remove` 必須取得明確確認。目的地驗證只回傳 sanitized metadata，不回傳 runtime credential。
 
 ### MCP stdio toolkit
 
@@ -119,6 +119,23 @@ Server 會套用既有 SSRF-safe probe policy。Candidate adapter 包含 `rss`�
 ### `GET /api/v1/subscriptions`
 
 列出 active subscriptions。
+
+### `POST /api/v1/subscriptions/ensure`
+
+接受來源 URL，probe 一次後在只有一個 candidate 時建立或解析既有 subscription。Request：
+
+```json
+{
+  "url": "https://example.com/feed.xml",
+  "pollIntervalMinutes": 60,
+  "metadata": {
+    "backfillLimit": 20,
+    "initialDeliveryLimit": 1
+  }
+}
+```
+
+回應會包含 `candidate`、`warnings`、`subscription` 與 `disposition`。零 candidate 回 `subscription_candidate_not_found`；多 candidate 回 `subscription_candidates_ambiguous`，候選會放在 `error.details.candidates`，此時應改用 candidate-level API。建立成功回 `201`，既有 subscription 回 `200`。
 
 ### `POST /api/v1/subscriptions`
 

@@ -20,6 +20,17 @@ function harness() {
     if (url.pathname === "/api/v1/probes") {
       return jsonResponse({ candidates: [], warnings: [] });
     }
+    if (url.pathname === "/api/v1/subscriptions/ensure") {
+      return jsonResponse(
+        {
+          subscription: { id: "subscription-1" },
+          disposition: "created",
+          candidate: { adapter: "x", sourceUrl: "https://x.com/example" },
+          warnings: [],
+        },
+        201,
+      );
+    }
     if (url.pathname === "/health") {
       return Response.json({ status: "ok", service: "curio" });
     }
@@ -61,6 +72,7 @@ describe("Curio MCP transport", () => {
     const listed = await context.server.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const listedTools = (listed?.result as { tools: Array<{ name: string }> }).tools;
     expect(listedTools.map((tool) => tool.name)).toContain("curio_probe_source");
+    expect(listedTools.map((tool) => tool.name)).toContain("curio_subscribe_source");
     expect(listedTools.map((tool) => tool.name)).toContain("curio_remove_source");
     expect(listedTools.map((tool) => tool.name).sort()).toEqual(
       [...AGENT_MANIFEST.toolkit.toolNames].sort(),
@@ -98,6 +110,36 @@ describe("Curio MCP transport", () => {
       error: { code: "confirmation_required" },
     });
     expect(context.requests).toHaveLength(0);
+  });
+
+  test("subscribes from one URL with explicit confirmation", async () => {
+    const context = harness();
+    const called = await callTool(context.server, "curio_subscribe_source", {
+      url: "https://x.com/example",
+      pollIntervalMinutes: 60,
+      confirm: true,
+    });
+
+    expect(called).toMatchObject({
+      ok: true,
+      data: { disposition: "created", subscription: { id: "subscription-1" } },
+    });
+    expect(context.requests).toEqual([
+      {
+        method: "POST",
+        path: "/api/v1/subscriptions/ensure",
+        body: '{"url":"https://x.com/example","pollIntervalMinutes":60}',
+      },
+    ]);
+
+    const missingConfirmation = await callTool(context.server, "curio_subscribe_source", {
+      url: "https://x.com/example",
+    });
+    expect(missingConfirmation).toMatchObject({
+      ok: false,
+      error: { code: "confirmation_required" },
+    });
+    expect(context.requests).toHaveLength(1);
   });
 
   test("returns JSON-RPC errors for unknown tools and methods", async () => {
