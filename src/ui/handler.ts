@@ -47,6 +47,8 @@ const NOTICE_MESSAGES: Record<string, Flash> = {
   route_toggled: { kind: "success", text: "路由狀態已更新。" },
   route_removed: { kind: "success", text: "路由已移除。" },
   delivery_retried: { kind: "success", text: "投遞已排入重試。" },
+  item_enriched: { kind: "success", text: "全文已擷取並保存。" },
+  item_refreshed: { kind: "success", text: "全文快照已更新。" },
 };
 
 function escapeHtml(value: unknown): string {
@@ -636,6 +638,9 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
 .reader-article > header p { margin: 0; }
 .reader-note { margin: 1.5rem 0 0; padding: 1rem; background: var(--paper-deep); border-radius: var(--radius-sm); }
 .reader-note p { margin: 0.2rem 0 0; color: var(--ink-soft); font-size: 0.86rem; }
+.reader-note-error { background: color-mix(in oklch, var(--paper-deep), var(--rust) 7%); }
+.reader-enrich-form { margin-top: 0.85rem; }
+.reader-enrich-form .button { min-height: 2.35rem; padding: 0.4rem 0.7rem; font-size: 0.82rem; }
 .reader-body { min-width: 0; padding: 2rem 0 2.5rem; font-family: -apple-system, "SF Pro Text", "PingFang TC", "Noto Sans TC", sans-serif; font-size: 1.05rem; line-height: 1.78; overflow-wrap: anywhere; }
 .reader-body h1, .reader-body h2, .reader-body h3 { margin: 2.2rem 0 0.65rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; line-height: 1.4; font-weight: 600; text-wrap: pretty; }
 .reader-body h1 { font-size: 1.45rem; }
@@ -833,8 +838,9 @@ function readerTimelineContent(app: CurioApplication, url: URL, currentTimestamp
   return `<header class="reader-heading"><p class="eyebrow">READER／拾起來讀</p><h1>閱讀</h1><p>從最近收集的內容開始，不讓管理狀態打斷閱讀。</p></header><div aria-live="polite">${body}</div>`;
 }
 
-function readerArticleContent(app: CurioApplication, itemId: string): string {
-  const item = app.services.subscriptions.getItem(itemId);
+function readerArticleContent(app: CurioApplication, session: UiSession, itemId: string): string {
+  const readerItem = app.services.reader.get(itemId);
+  const { item, enrichment } = readerItem;
   const subscription = app.services.subscriptions
     .list(MAX_LIST_ITEMS)
     .find((candidate) => candidate.id === item.subscriptionId);
@@ -843,8 +849,10 @@ function readerArticleContent(app: CurioApplication, itemId: string): string {
     ...new Set([item.author, source].filter((value): value is string => Boolean(value))),
   ];
   const title = item.title || item.url || "未命名內容";
-  let blocks = item.contentHtml ? parseReaderHtml(item.contentHtml, item.url) : [];
-  if (blocks.length === 0 && item.contentText) blocks = parseReaderText(item.contentText);
+  let blocks = readerItem.contentHtml ? parseReaderHtml(readerItem.contentHtml, item.url) : [];
+  if (blocks.length === 0 && readerItem.contentText) {
+    blocks = parseReaderText(readerItem.contentText);
+  }
   if (blocks.length === 0 && item.summary) blocks = parseReaderText(item.summary);
   const articleBody = blocks.length
     ? renderReaderBlocks(blocks)
@@ -853,11 +861,19 @@ function readerArticleContent(app: CurioApplication, itemId: string): string {
   const sourceLink = originalHref
     ? `<a class="button-link button-secondary" href="${originalHref}" target="_blank" rel="noopener noreferrer">開啟原文</a>`
     : "";
-  const summaryOnly =
-    !item.contentHtml && !item.contentText
-      ? `<aside class="reader-note"><strong>目前只有摘要</strong><p>來源沒有在 RSS 中提供完整正文，可以先閱讀摘要或開啟原文。</p></aside>`
+  const hasFeedBody = Boolean(item.contentHtml?.trim() || item.contentText?.trim());
+  const hasEnrichedBody = Boolean(enrichment?.contentHtml);
+  const enrichmentForm =
+    !hasFeedBody && item.url
+      ? `<form class="reader-enrich-form" method="post" action="/reader/items/${encodeURIComponent(item.id)}/enrich" data-loading>${csrfField(session)}${hasEnrichedBody ? '<input type="hidden" name="force" value="true">' : ""}<button class="button button-secondary" type="submit">${hasEnrichedBody ? "重新擷取全文" : enrichment?.lastError ? "重試全文擷取" : "取得全文"}</button></form>`
       : "";
-  return `<nav class="reader-back" aria-label="閱讀導覽"><a href="/reader">← 返回閱讀</a></nav><article class="reader-article"><header><time datetime="${escapeHtml(new Date(item.publishedAt ?? item.discoveredAt).toISOString())}">${formatDate(item.publishedAt ?? item.discoveredAt)}</time><h1>${displayText(title, 240)}</h1><p>${displayText(byline.join(" · "), 160)}</p></header>${summaryOnly}<div class="reader-body">${articleBody}</div>${sourceLink ? `<footer class="reader-source-action">${sourceLink}</footer>` : ""}</article>`;
+  let enrichmentState = "";
+  if (hasEnrichedBody && enrichment) {
+    enrichmentState = `<aside class="reader-note"><strong>已保存全文快照</strong><p>擷取於 ${formatDate(enrichment.fetchedAt)}${enrichment.fetchedUrl ? ` · ${displayUrl(enrichment.fetchedUrl)}` : ""}</p>${enrichment.lastError ? `<p class="field-error">最近一次更新失敗：${displayText(enrichment.lastError, 180)}</p>` : ""}${enrichmentForm}</aside>`;
+  } else if (!hasFeedBody) {
+    enrichmentState = `<aside class="reader-note${enrichment?.lastError ? " reader-note-error" : ""}"><strong>${enrichment?.lastError ? "全文擷取沒有完成" : "目前只有摘要"}</strong><p>${enrichment?.lastError ? displayText(enrichment.lastError, 180) : "來源沒有在 RSS 中提供完整正文，可以先閱讀摘要或取得全文。"}</p>${enrichmentForm}</aside>`;
+  }
+  return `<nav class="reader-back" aria-label="閱讀導覽"><a href="/reader">← 返回閱讀</a></nav><article class="reader-article"><header><time datetime="${escapeHtml(new Date(item.publishedAt ?? item.discoveredAt).toISOString())}">${formatDate(item.publishedAt ?? item.discoveredAt)}</time><h1>${displayText(title, 240)}</h1><p>${displayText(byline.join(" · "), 160)}</p></header>${enrichmentState}<div class="reader-body">${articleBody}</div>${sourceLink ? `<footer class="reader-source-action">${sourceLink}</footer>` : ""}</article>`;
 }
 
 function subscriptionsContent(app: CurioApplication, session: UiSession, url: URL): string {
@@ -1308,7 +1324,7 @@ export function createUiHandler(app: CurioApplication, options: UiHandlerOptions
       return renderShell(
         "閱讀文章",
         "reader",
-        readerArticleContent(app, safePathSegment(segments[2] as string)),
+        readerArticleContent(app, session, safePathSegment(segments[2] as string)),
         session,
         flash,
       );
@@ -1446,6 +1462,17 @@ export function createUiHandler(app: CurioApplication, options: UiHandlerOptions
       };
     }
     const segments = path.split("/").filter(Boolean);
+    if (
+      segments[0] === "reader" &&
+      segments[1] === "items" &&
+      segments.length === 4 &&
+      segments[3] === "enrich"
+    ) {
+      const id = safePathSegment(segments[2] as string);
+      const result = await app.services.reader.enrich(id, { force: form.get("force") === "true" });
+      const notice = result.disposition === "refreshed" ? "item_refreshed" : "item_enriched";
+      return { location: `/reader/items/${encodeURIComponent(id)}?notice=${notice}` };
+    }
     if (segments[0] === "subscriptions" && segments.length === 3) {
       const id = safePathSegment(segments[1] as string);
       const action = segments[2];
@@ -1614,8 +1641,9 @@ export function createUiHandler(app: CurioApplication, options: UiHandlerOptions
       if ("html" in result) return htmlResponse(result.html, session);
       return redirectResponse(request, result.location, session);
     } catch (error) {
-      const fallback =
-        url.pathname === "/subscriptions/probe"
+      const fallback = url.pathname.startsWith("/reader/items/")
+        ? `/reader/items/${url.pathname.split("/")[3]}`
+        : url.pathname === "/subscriptions/probe"
           ? "/subscriptions/new"
           : url.pathname.startsWith("/subscriptions/")
             ? `/subscriptions/${url.pathname.split("/")[2]}`

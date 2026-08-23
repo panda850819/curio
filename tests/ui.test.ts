@@ -246,6 +246,169 @@ describe("Curio Web UI", () => {
     context.database.close();
   });
 
+  test("enriches a summary-only Reader item with cached safe article content", async () => {
+    const articleUrl = "https://example.com/summary-article";
+    let articleRequests = 0;
+    const context = harness({
+      get: async (url, maximumBytes) => {
+        if (url === feedUrl) {
+          return {
+            url,
+            status: 200,
+            headers: {
+              get: (name: string) => (name === "content-type" ? "application/atom+xml" : null),
+            },
+            body: new TextEncoder().encode(`
+              <feed xmlns="http://www.w3.org/2005/Atom"><title>Enrichment feed</title>
+                <entry><id>enrich-me</id><title>需要全文</title><updated>1970-01-01T00:00:01Z</updated>
+                <link href="${articleUrl}"/><summary>目前只有摘要。</summary></entry>
+              </feed>`),
+          };
+        }
+        articleRequests += 1;
+        const body =
+          articleRequests === 1
+            ? `<html><body><nav>導覽</nav><main><article><h1>擷取後全文</h1><p>這是從原始文章頁安全擷取並保存的完整正文，長度足以通過文章內容門檻。</p><blockquote>保存真正的文章內容。</blockquote><script>secret()</script></article></main></body></html>`
+            : `<main><article><h1>更新後全文</h1><p>明確重新擷取後，Curio 更新保存的全文快照，但不改寫原始 RSS item。</p></article></main>`;
+        maximumBytes("text/html");
+        return {
+          url: articleUrl,
+          status: 200,
+          headers: { get: (name: string) => (name === "content-type" ? "text/html" : null) },
+          body: new TextEncoder().encode(body),
+        };
+      },
+    });
+    const followed = context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "atom",
+        sourceKey: feedUrl,
+        sourceUrl: feedUrl,
+        title: "Enrichment feed",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    await context.app.services.subscriptions.poll(followed.subscription.id);
+    const item = context.app.services.subscriptions.listItemsPage(10).items[0];
+    const session = await getSession(context.ui);
+
+    const before = await context.ui(
+      new Request(`http://curio.test/reader/items/${item?.id}`, {
+        headers: { cookie: session.cookie },
+      }),
+    );
+    const beforeHtml = await before.text();
+    expect(beforeHtml).toContain("目前只有摘要");
+    expect(beforeHtml).toContain("取得全文");
+
+    const enriched = await context.ui(
+      formRequest(`/reader/items/${item?.id}/enrich`, { csrf: session.csrf }, session.cookie),
+    );
+    expect(enriched.status).toBe(303);
+    expect(enriched.headers.get("location")).toContain("notice=item_enriched");
+
+    const after = await context.ui(
+      new Request(`http://curio.test/reader/items/${item?.id}`, {
+        headers: { cookie: session.cookie },
+      }),
+    );
+    const afterHtml = await after.text();
+    const readerBody = /<div class="reader-body">([\s\S]*?)<\/div>/u.exec(afterHtml)?.[1] ?? "";
+    expect(afterHtml).toContain("已保存全文快照");
+    expect(afterHtml).toContain("重新擷取全文");
+    expect(readerBody).toContain("擷取後全文");
+    expect(readerBody).toContain("<blockquote>保存真正的文章內容。</blockquote>");
+    expect(readerBody).not.toContain("script");
+    expect(articleRequests).toBe(1);
+
+    const reopened = await context.ui(
+      new Request(`http://curio.test/reader/items/${item?.id}`, {
+        headers: { cookie: session.cookie },
+      }),
+    );
+    expect(reopened.status).toBe(200);
+    expect(articleRequests).toBe(1);
+
+    const refreshed = await context.ui(
+      formRequest(
+        `/reader/items/${item?.id}/enrich`,
+        { csrf: session.csrf, force: "true" },
+        session.cookie,
+      ),
+    );
+    expect(refreshed.status).toBe(303);
+    expect(refreshed.headers.get("location")).toContain("notice=item_refreshed");
+    expect(articleRequests).toBe(2);
+    expect(context.app.services.reader.get(item?.id ?? "").contentHtml).toContain("更新後全文");
+    expect(context.app.services.subscriptions.getItem(item?.id ?? "")).toMatchObject({
+      summary: "目前只有摘要。",
+      contentHtml: null,
+      contentText: null,
+    });
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("keeps the summary visible when Reader enrichment fails", async () => {
+    const articleUrl = "https://example.com/not-html";
+    const context = harness({
+      get: async (url, maximumBytes) => {
+        if (url === feedUrl) {
+          return {
+            url,
+            status: 200,
+            headers: {
+              get: (name: string) => (name === "content-type" ? "application/atom+xml" : null),
+            },
+            body: new TextEncoder().encode(`
+              <feed xmlns="http://www.w3.org/2005/Atom"><title>Failure feed</title>
+                <entry><id>fail</id><title>保留摘要</title><updated>1970-01-01T00:00:01Z</updated>
+                <link href="${articleUrl}"/><summary>擷取失敗時仍可閱讀的摘要。</summary></entry>
+              </feed>`),
+          };
+        }
+        maximumBytes("application/pdf");
+        return {
+          url: articleUrl,
+          status: 200,
+          headers: {
+            get: (name: string) => (name === "content-type" ? "application/pdf" : null),
+          },
+          body: new TextEncoder().encode("not html"),
+        };
+      },
+    });
+    const followed = context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "atom",
+        sourceKey: feedUrl,
+        sourceUrl: feedUrl,
+        title: "Failure feed",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    await context.app.services.subscriptions.poll(followed.subscription.id);
+    const item = context.app.services.subscriptions.listItemsPage(10).items[0];
+    const session = await getSession(context.ui);
+    const failure = await context.ui(
+      formRequest(`/reader/items/${item?.id}/enrich`, { csrf: session.csrf }, session.cookie),
+    );
+    expect(failure.status).toBe(400);
+    const html = await failure.text();
+    expect(html).toContain("全文擷取沒有完成");
+    expect(html).toContain("來源不是可擷取的 HTML 文章");
+    expect(html).toContain("擷取失敗時仍可閱讀的摘要。");
+    expect(html).toContain("重試全文擷取");
+
+    context.app.close();
+    context.database.close();
+  });
+
   test("shows the shared email inbox on the add subscription screen", async () => {
     const context = harness(undefined, true);
     const response = await context.ui(new Request("http://curio.test/subscriptions/new"));

@@ -10,6 +10,7 @@ export type ReaderBlockKind =
 export interface ReaderBlock {
   kind: ReaderBlockKind;
   html: string;
+  text: string;
   ordered?: boolean;
 }
 
@@ -138,7 +139,12 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
   function flushFrame(): void {
     if (!frame) return;
     if (frame.text.trim()) {
-      blocks.push({ kind: frame.kind, html: frame.html, ordered: frame.ordered });
+      blocks.push({
+        kind: frame.kind,
+        html: frame.html,
+        text: frame.text.trim(),
+        ordered: frame.ordered,
+      });
     }
     frame = null;
   }
@@ -266,7 +272,15 @@ export function parseReaderText(text: string): ReaderBlock[] {
     .map((paragraph) => ({
       kind: "paragraph" as const,
       html: escapeHtml(paragraph).replaceAll("\n", "<br>"),
+      text: paragraph,
     }));
+}
+
+export function readerBlocksText(blocks: ReaderBlock[]): string {
+  return blocks
+    .map((block) => block.text.trim())
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function renderReaderBlocks(blocks: ReaderBlock[]): string {

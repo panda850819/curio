@@ -204,6 +204,20 @@ Server 會重新 probe 並驗證 candidate identity，不能只相信 client 提
 
 全域 timeline。可用 `subscriptionId` 篩選。排序固定為 `publishedAt ?? discoveredAt` descending。
 
+### `POST /api/v1/items/:id/enrich`
+
+對只有摘要、沒有 `contentHtml`／`contentText` 的 item 執行一次明確的全文擷取。Request body：
+
+```json
+{ "force": false }
+```
+
+`force` 預設 `false`。成功快照已存在時直接回傳 `disposition: "cached"`，不再送出外部 request；`force: true` 會重新擷取並回傳 `refreshed`。
+
+Enrichment 使用與 probe 相同的 SSRF-safe HTTP client，逐次驗證 DNS 與 redirect，只接受 HTTP(S) 的 `text/html`／`application/xhtml+xml`，限制 response 與 extracted content 大小，不執行 JavaScript 或 headless browser。正文會先轉成 Reader 的 safe typed blocks，再保存到獨立的 `item_enrichments` snapshot；原始 `items` row、subscription cursor、poll 與 delivery 不會被修改。
+
+失敗會保存 item-local、已清理的 `lastError`，原摘要仍可閱讀。已有 feed 正文的 item 回 `409 item_content_already_available`；不支援的 content type、空正文、URL credentials、private target、unsafe redirect 與 oversized response 都會被拒絕。
+
 ## Destinations
 
 ### `GET /api/v1/destinations`

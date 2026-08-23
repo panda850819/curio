@@ -244,6 +244,22 @@ describe("HTTP handler", () => {
     expect(context.app.deliveryRepository.list()).toHaveLength(1);
     expect(context.app.deliveryRepository.list()[0]?.destinationId).toBe(destinationId);
 
+    const itemId = context.app.services.subscriptions.listItemsPage(10).items[0]?.id ?? "";
+    const enrichment = await context.request(
+      jsonRequest(`http://curio.test/api/v1/items/${itemId}/enrich`, "POST", {}),
+    );
+    expect(enrichment.status).toBe(409);
+    expect(await enrichment.json()).toMatchObject({
+      error: { code: "item_content_already_available" },
+    });
+    const invalidEnrichment = await context.request(
+      jsonRequest(`http://curio.test/api/v1/items/${itemId}/enrich`, "POST", {
+        unexpected: true,
+      }),
+    );
+    expect(invalidEnrichment.status).toBe(400);
+    expect(await invalidEnrichment.json()).toMatchObject({ error: { code: "unknown_field" } });
+
     context.app.close();
     context.database.close();
   });

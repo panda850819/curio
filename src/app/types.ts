@@ -14,6 +14,7 @@ import type {
   SubscriptionUpdate,
 } from "../domain/types.ts";
 import type { ProbeResult, ProbeWarning, SubscriptionCandidate } from "../probe/types.ts";
+import type { EnrichItemResult, ReaderItem } from "../reader/service.ts";
 import type { SourcePollResult } from "../scheduler.ts";
 import type { EmailInbox } from "../sources/email/types.ts";
 import type { Page } from "./pagination.ts";
@@ -65,6 +66,11 @@ export interface SubscriptionService {
   poll(id: string): Promise<SourcePollResult>;
 }
 
+export interface ReaderService {
+  get(itemId: string): ReaderItem;
+  enrich(itemId: string, options?: { force?: boolean }): Promise<EnrichItemResult>;
+}
+
 export interface DestinationVerification {
   destinationId: string;
   chat: TelegramChatMetadata;
@@ -96,6 +102,7 @@ export interface ApplicationServices {
   probe: ProbeService;
   email: EmailInboxService;
   subscriptions: SubscriptionService;
+  reader: ReaderService;
   destinations: DestinationService;
   routes: RouteService;
   deliveries: DeliveryService;
