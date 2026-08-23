@@ -160,7 +160,8 @@ describe("Curio Web UI", () => {
     );
     expect(article.status).toBe(200);
     const articleHtml = await article.text();
-    const readerBody = /<div class="reader-body">([\s\S]*?)<\/div>/u.exec(articleHtml)?.[1] ?? "";
+    const readerBody =
+      /<div class="reader-body"[^>]*>([\s\S]*?)<\/div>/u.exec(articleHtml)?.[1] ?? "";
     expect(articleHtml).toContain('href="/reader">← 返回閱讀</a>');
     expect(articleHtml).toContain("正文標題");
     expect(readerBody).toContain("<h2>正文標題</h2>");
@@ -187,6 +188,176 @@ describe("Curio Web UI", () => {
     const missing = await context.ui(new Request("http://curio.test/reader/items/missing"));
     expect(missing.status).toBe(404);
     expect(await missing.text()).toContain("返回閱讀");
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("persists Reader state and exact saved quotes through UI mutations", async () => {
+    const context = harness({
+      get: async (url) => ({
+        url,
+        status: 200,
+        headers: {
+          get: (name: string) => (name === "content-type" ? "application/rss+xml" : null),
+        },
+        body: new TextEncoder().encode(`
+          <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+            <channel><title>Quote feed</title><item><guid>quote-item</guid><title>可以保存摘錄的文章</title>
+              <link>https://example.com/quote-item</link><description>摘錄測試摘要</description>
+              <content:encoded><![CDATA[<h2>摘錄測試</h2><p>這是一段可以保存的真實原文。</p><p>文章還有第二段內容。</p>]]></content:encoded>
+            </item></channel>
+          </rss>`),
+      }),
+    });
+    const followed = context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "rss",
+        sourceKey: feedUrl,
+        sourceUrl: feedUrl,
+        title: "Quote feed",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    await context.app.services.subscriptions.poll(followed.subscription.id);
+    const item = context.app.services.subscriptions.listItemsPage(10).items[0];
+    const session = await getSession(context.ui);
+
+    const article = await context.ui(
+      new Request(`http://curio.test/reader/items/${item?.id}`, {
+        headers: { cookie: session.cookie },
+      }),
+    );
+    expect(article.status).toBe(200);
+    const articleHtml = await article.text();
+    expect(context.app.services.reader.getState(item?.id ?? "")).toMatchObject({ isRead: true });
+    expect(articleHtml).toContain("標為未讀");
+    expect(articleHtml).toContain("收藏");
+    expect(articleHtml).toContain("data-quote-form");
+    expect(articleHtml).toContain("選取上方文章中的真實文字後");
+
+    const favorite = await context.ui(
+      formRequest(
+        `/reader/items/${item?.id}/favorite`,
+        { csrf: session.csrf, value: "true", returnItem: "true" },
+        session.cookie,
+      ),
+    );
+    expect(favorite.status).toBe(303);
+    expect(favorite.headers.get("location")).toContain(`/reader/items/${item?.id}`);
+    expect(context.app.services.reader.getState(item?.id ?? "")).toMatchObject({
+      isRead: true,
+      isFavorite: true,
+    });
+
+    const rejectedCsrf = await context.ui(
+      formRequest(
+        `/reader/items/${item?.id}/quotes`,
+        { text: "這是一段可以保存的真實原文。", note: "筆記" },
+        session.cookie,
+      ),
+    );
+    expect(rejectedCsrf.status).toBe(403);
+
+    const saved = await context.ui(
+      formRequest(
+        `/reader/items/${item?.id}/quotes`,
+        {
+          csrf: session.csrf,
+          text: "這是一段可以保存的真實原文。",
+          note: "<script>我的筆記</script>",
+        },
+        session.cookie,
+      ),
+    );
+    expect(saved.status).toBe(303);
+    expect(saved.headers.get("location")).toContain("notice=quote_saved");
+    const quote = context.app.services.reader.listQuotes(item?.id)[0];
+    expect(quote).toMatchObject({ exactText: "這是一段可以保存的真實原文。", detached: false });
+
+    const duplicate = await context.ui(
+      formRequest(
+        `/reader/items/${item?.id}/quotes`,
+        { csrf: session.csrf, text: "這是一段可以保存的真實原文。", note: "不同筆記" },
+        session.cookie,
+      ),
+    );
+    expect(duplicate.status).toBe(303);
+    expect(duplicate.headers.get("location")).toContain("notice=quote_existing");
+    expect(context.app.services.reader.listQuotes(item?.id)).toHaveLength(1);
+
+    const fabricated = await context.ui(
+      formRequest(
+        `/reader/items/${item?.id}/quotes`,
+        { csrf: session.csrf, text: "原文裡不存在的句子" },
+        session.cookie,
+      ),
+    );
+    expect(fabricated.status).toBe(400);
+    expect(await fabricated.text()).toContain("摘錄文字不存在於目前的文章正文");
+
+    const withQuote = await context.ui(
+      new Request(`http://curio.test/reader/items/${item?.id}`, {
+        headers: { cookie: session.cookie },
+      }),
+    );
+    const withQuoteHtml = await withQuote.text();
+    expect(withQuoteHtml).toContain("這篇文章的摘錄");
+    expect(withQuoteHtml).toContain("這是一段可以保存的真實原文。");
+    expect(withQuoteHtml).toContain("&lt;script&gt;我的筆記&lt;/script&gt;");
+    expect(withQuoteHtml).not.toContain("<script>我的筆記</script>");
+
+    const timeline = await context.ui(
+      new Request("http://curio.test/reader", { headers: { cookie: session.cookie } }),
+    );
+    const timelineHtml = await timeline.text();
+    expect(timelineHtml).toContain("reader-row-read");
+    expect(timelineHtml).toContain("已收藏");
+
+    const unread = await context.ui(
+      formRequest(
+        `/reader/items/${item?.id}/read`,
+        { csrf: session.csrf, value: "false", returnItem: "true" },
+        session.cookie,
+      ),
+    );
+    expect(unread.status).toBe(303);
+    expect(unread.headers.get("location")).toContain("/reader?notice=reader_state_updated");
+    expect(context.app.services.reader.getState(item?.id ?? "").isRead).toBe(false);
+    const readAgain = await context.ui(
+      formRequest(
+        `/reader/items/${item?.id}/read`,
+        { csrf: session.csrf, value: "true" },
+        session.cookie,
+      ),
+    );
+    expect(readAgain.status).toBe(303);
+    expect(context.app.services.reader.getState(item?.id ?? "").isRead).toBe(true);
+
+    const quoteIndex = await context.ui(
+      new Request("http://curio.test/reader/quotes", { headers: { cookie: session.cookie } }),
+    );
+    expect(quoteIndex.status).toBe(200);
+    expect(await quoteIndex.text()).toContain("可以保存摘錄的文章");
+
+    context.app.services.subscriptions.remove(followed.subscription.id);
+    const retained = context.app.services.reader.get(item?.id ?? "");
+    expect(retained).toMatchObject({
+      state: { isRead: true, isFavorite: true },
+      quotes: [{ id: quote?.id, detached: false }],
+    });
+
+    const removed = await context.ui(
+      formRequest(
+        `/reader/quotes/${quote?.id}/remove`,
+        { csrf: session.csrf, itemId: item?.id ?? "" },
+        session.cookie,
+      ),
+    );
+    expect(removed.status).toBe(303);
+    expect(context.app.services.reader.listQuotes()).toEqual([]);
 
     context.app.close();
     context.database.close();
@@ -315,7 +486,8 @@ describe("Curio Web UI", () => {
       }),
     );
     const afterHtml = await after.text();
-    const readerBody = /<div class="reader-body">([\s\S]*?)<\/div>/u.exec(afterHtml)?.[1] ?? "";
+    const readerBody =
+      /<div class="reader-body"[^>]*>([\s\S]*?)<\/div>/u.exec(afterHtml)?.[1] ?? "";
     expect(afterHtml).toContain("已保存全文快照");
     expect(afterHtml).toContain("重新擷取全文");
     expect(readerBody).toContain("擷取後全文");

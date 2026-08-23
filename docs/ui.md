@@ -13,12 +13,14 @@ Curio 使用 Bun-native server-rendered HTML，沒有新增 frontend framework�
 - Bot token、webhook secret、X credentials 不會傳入 view model。
 - 外部標題、URL、summary、error 都經 HTML escaping。Reader 不直接 render stored `contentHtml`，而是先用 HTML parser 轉成 heading、paragraph、list item、blockquote、code 與 safe HTTP(S) link 等 typed blocks；script、style、iframe、form、embed、event handlers、unsafe URL schemes 與未知 wrapper 都不會進入輸出。
 - Summary-only item 的「取得全文」使用既有 SSRF-safe client，逐次驗證 redirect、限制大小且只接受靜態 HTML。Enrichment 存在獨立 snapshot，不改寫原始 feed item、cursor 或 delivery。
+- Saved quote form 的原文欄位由目前文章 selection 填入且 readonly；server 仍會對 canonical readable text 做 exact 驗證。Quote、note 與 detached 狀態都經 escaping 後才呈現。
 - Remove、route remove、subscription remove 在瀏覽器端要求 confirmation，server 仍會重新驗證 resource。
 
 ## Routes
 
 - `/`：dashboard health、recent items、delivery health。
-- `/reader`、`/reader/items/:id`：依今天／昨天／更早瀏覽已收集內容，並在 Curio 內閱讀安全的文章 block；只有摘要時保留原文出口與明確的全文擷取操作。成功 snapshot 會顯示 provenance，重新開啟不 refetch；使用者可明確要求更新快照。
+- `/reader`、`/reader/items/:id`：依今天／昨天／更早瀏覽已收集內容，並在 Curio 內閱讀安全的文章 block；只有摘要時保留原文出口與明確的全文擷取操作。成功 snapshot 會顯示 provenance，重新開啟不 refetch；使用者可明確要求更新快照。時間軸與文章頁都能切換 read/favorite；文章頁 selection 可保存 exact quote。
+- `/reader/quotes`：列出全部 saved quotes、筆記、來源文章與 detached 狀態。
 - `/subscriptions`、`/subscriptions/new`、`/subscriptions/:id`：probe、follow、pause/resume、manual poll、remove、items、routes。
 - `/destinations`：Telegram destination create、verify、enable/disable。
 - `/deliveries`：status filter、attempt detail、uncertain/permanent retry。

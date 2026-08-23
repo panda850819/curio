@@ -1,6 +1,6 @@
 import { AppError, toAppError } from "../app/errors.ts";
 import type { ItemRepository } from "../db/repositories.ts";
-import type { Item, ItemEnrichment } from "../domain/types.ts";
+import type { Item, ItemEnrichment, ItemReaderState, SavedQuote } from "../domain/types.ts";
 import type { ProbeHttpClient } from "../probe/types.ts";
 import {
   HtmlContentEmptyError,
@@ -10,6 +10,7 @@ import {
 } from "../sources/html/normalize.ts";
 import { parseReaderHtml, readerBlocksText, renderReaderBlocks } from "./content.ts";
 import type { ItemEnrichmentRepository } from "./repository.ts";
+import type { ReaderStateRepository } from "./state-repository.ts";
 
 const MAXIMUM_ARTICLE_BYTES = 1024 * 1024;
 const MINIMUM_ARTICLE_CHARACTERS = 40;
@@ -22,11 +23,23 @@ const ARTICLE_SELECTORS = [
   ".post-content",
 ];
 
+export interface ReaderQuote extends SavedQuote {
+  detached: boolean;
+}
+
 export interface ReaderItem {
   item: Item;
   enrichment: ItemEnrichment | null;
   contentHtml: string | null;
   contentText: string | null;
+  readableText: string;
+  state: ItemReaderState;
+  quotes: ReaderQuote[];
+}
+
+export interface SaveQuoteResult {
+  quote: ReaderQuote;
+  disposition: "created" | "existing";
 }
 
 export interface EnrichItemResult {
@@ -113,6 +126,49 @@ function safeArticle(html: string, baseUrl: string): { contentHtml: string; cont
   throw new AppError("validation", "enrichment_content_empty", "找不到足夠的靜態文章正文");
 }
 
+function readableText(input: {
+  item: Item;
+  contentHtml: string | null;
+  contentText: string | null;
+}): string {
+  if (input.contentHtml) {
+    const parsed = readerBlocksText(parseReaderHtml(input.contentHtml, input.item.url));
+    if (parsed) return parsed;
+  }
+  return input.contentText?.trim() || input.item.summary?.trim() || "";
+}
+
+function defaultReaderState(item: Item): ItemReaderState {
+  return {
+    itemId: item.id,
+    isRead: false,
+    isFavorite: false,
+    readAt: null,
+    createdAt: item.createdAt,
+    updatedAt: item.createdAt,
+  };
+}
+
+function quoteAttached(quote: SavedQuote, currentText: string): boolean {
+  let index = currentText.indexOf(quote.exactText);
+  if (index < 0) return false;
+  while (index >= 0) {
+    const prefix = currentText.slice(Math.max(0, index - quote.prefixContext.length), index);
+    const suffix = currentText.slice(
+      index + quote.exactText.length,
+      index + quote.exactText.length + quote.suffixContext.length,
+    );
+    if (
+      (!quote.prefixContext || prefix === quote.prefixContext) &&
+      (!quote.suffixContext || suffix === quote.suffixContext)
+    ) {
+      return true;
+    }
+    index = currentText.indexOf(quote.exactText, index + 1);
+  }
+  return currentText.split(quote.exactText).length === 2;
+}
+
 export class DefaultReaderService {
   private readonly inFlight = new Map<string, Promise<EnrichItemResult>>();
 
@@ -120,17 +176,104 @@ export class DefaultReaderService {
     private readonly items: ItemRepository,
     private readonly enrichments: ItemEnrichmentRepository,
     private readonly client: ProbeHttpClient,
+    private readonly readerState: ReaderStateRepository,
   ) {}
 
   get(itemId: string): ReaderItem {
     const item = itemById(this.items, itemId);
     const enrichment = this.enrichments.findByItemId(item.id);
+    const contentHtml = enrichment?.contentHtml ?? item.contentHtml ?? null;
+    const contentText = enrichment?.contentText ?? item.contentText ?? null;
+    const currentText = readableText({ item, contentHtml, contentText });
+    const quotes = this.readerState.listQuotes(item.id).map((quote) => ({
+      ...quote,
+      detached: !quoteAttached(quote, currentText),
+    }));
     return {
       item,
       enrichment,
-      contentHtml: enrichment?.contentHtml ?? item.contentHtml ?? null,
-      contentText: enrichment?.contentText ?? item.contentText ?? null,
+      contentHtml,
+      contentText,
+      readableText: currentText,
+      state: this.readerState.findState(item.id) ?? defaultReaderState(item),
+      quotes,
     };
+  }
+
+  getState(itemId: string): ItemReaderState {
+    const item = itemById(this.items, itemId);
+    return this.readerState.findState(item.id) ?? defaultReaderState(item);
+  }
+
+  markRead(itemId: string, isRead: boolean): ItemReaderState {
+    const item = itemById(this.items, itemId);
+    return this.readerState.updateState(item.id, { isRead });
+  }
+
+  setFavorite(itemId: string, isFavorite: boolean): ItemReaderState {
+    const item = itemById(this.items, itemId);
+    return this.readerState.updateState(item.id, { isFavorite });
+  }
+
+  saveQuote(itemId: string, input: { text: string; note?: string | null }): SaveQuoteResult {
+    const readerItem = this.get(itemId);
+    const exactText = input.text.trim();
+    if (!exactText || exactText.length > 5_000 || exactText.includes("\u0000")) {
+      throw new AppError("validation", "quote_text_invalid", "摘錄文字必須介於 1 到 5000 個字元");
+    }
+    const note = input.note?.trim() || null;
+    if (note && (note.length > 2_000 || note.includes("\u0000"))) {
+      throw new AppError("validation", "quote_note_invalid", "摘錄筆記不能超過 2000 個字元");
+    }
+    const index = readerItem.readableText.indexOf(exactText);
+    if (index < 0) {
+      throw new AppError("validation", "quote_text_not_found", "摘錄文字不存在於目前的文章正文");
+    }
+    const prefixContext = readerItem.readableText.slice(Math.max(0, index - 80), index);
+    const suffixContext = readerItem.readableText.slice(
+      index + exactText.length,
+      index + exactText.length + 80,
+    );
+    const existing = this.readerState.findDuplicateQuote({
+      itemId: readerItem.item.id,
+      exactText,
+      prefixContext,
+      suffixContext,
+    });
+    if (existing) {
+      return { quote: { ...existing, detached: false }, disposition: "existing" };
+    }
+    const quote = this.readerState.createQuote({
+      itemId: readerItem.item.id,
+      exactText,
+      prefixContext,
+      suffixContext,
+      note,
+    });
+    return { quote: { ...quote, detached: false }, disposition: "created" };
+  }
+
+  listQuotes(itemId?: string): ReaderQuote[] {
+    if (itemId) itemById(this.items, itemId);
+    return this.readerState.listQuotes(itemId).map((quote) => {
+      const item = itemById(this.items, quote.itemId);
+      const enrichment = this.enrichments.findByItemId(item.id);
+      const currentText = readableText({
+        item,
+        contentHtml: enrichment?.contentHtml ?? item.contentHtml ?? null,
+        contentText: enrichment?.contentText ?? item.contentText ?? null,
+      });
+      return { ...quote, detached: !quoteAttached(quote, currentText) };
+    });
+  }
+
+  removeQuote(id: string): { id: string } {
+    const quote = this.readerState.findQuote(id.trim());
+    if (!quote) throw new AppError("not_found", "quote_not_found", "找不到這則摘錄");
+    if (!this.readerState.deleteQuote(quote.id)) {
+      throw new AppError("not_found", "quote_not_found", "找不到這則摘錄");
+    }
+    return { id: quote.id };
   }
 
   async enrich(itemId: string, options: { force?: boolean } = {}): Promise<EnrichItemResult> {

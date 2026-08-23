@@ -260,6 +260,67 @@ describe("HTTP handler", () => {
     expect(invalidEnrichment.status).toBe(400);
     expect(await invalidEnrichment.json()).toMatchObject({ error: { code: "unknown_field" } });
 
+    const initialState = await context.request(
+      new Request(`http://curio.test/api/v1/items/${itemId}/reader-state`),
+    );
+    expect(await initialState.json()).toMatchObject({
+      data: { isRead: false, isFavorite: false },
+    });
+    const updatedState = await context.request(
+      jsonRequest(`http://curio.test/api/v1/items/${itemId}/reader-state`, "PATCH", {
+        isRead: true,
+        isFavorite: true,
+      }),
+    );
+    expect(updatedState.status).toBe(200);
+    expect(await updatedState.json()).toMatchObject({
+      data: { isRead: true, isFavorite: true },
+    });
+
+    const quoteResponse = await context.request(
+      jsonRequest(`http://curio.test/api/v1/items/${itemId}/quotes`, "POST", {
+        text: "New item",
+        note: "API note",
+      }),
+    );
+    expect(quoteResponse.status).toBe(201);
+    const quoteBody = (await quoteResponse.json()) as {
+      data: { quote: { id: string; exactText: string }; disposition: string };
+    };
+    expect(quoteBody.data).toMatchObject({
+      disposition: "created",
+      quote: { exactText: "New item" },
+    });
+    const duplicateQuote = await context.request(
+      jsonRequest(`http://curio.test/api/v1/items/${itemId}/quotes`, "POST", {
+        text: "New item",
+      }),
+    );
+    expect(duplicateQuote.status).toBe(200);
+    expect(await duplicateQuote.json()).toMatchObject({ data: { disposition: "existing" } });
+    const fabricatedQuote = await context.request(
+      jsonRequest(`http://curio.test/api/v1/items/${itemId}/quotes`, "POST", {
+        text: "Fabricated quote",
+      }),
+    );
+    expect(fabricatedQuote.status).toBe(400);
+    expect(await fabricatedQuote.json()).toMatchObject({
+      error: { code: "quote_text_not_found" },
+    });
+    const quotes = await context.request(
+      new Request(`http://curio.test/api/v1/quotes?itemId=${encodeURIComponent(itemId)}`),
+    );
+    expect(await quotes.json()).toMatchObject({
+      data: [{ id: quoteBody.data.quote.id, detached: false }],
+    });
+    const removedQuote = await context.request(
+      new Request(`http://curio.test/api/v1/quotes/${quoteBody.data.quote.id}`, {
+        method: "DELETE",
+      }),
+    );
+    expect(removedQuote.status).toBe(200);
+    expect(await removedQuote.json()).toEqual({ data: { id: quoteBody.data.quote.id } });
+
     context.app.close();
     context.database.close();
   });

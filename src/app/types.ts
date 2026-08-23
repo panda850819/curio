@@ -5,6 +5,7 @@ import type {
   Destination,
   DestinationUpdate,
   Item,
+  ItemReaderState,
   JsonValue,
   NewDestination,
   NewRoute,
@@ -14,7 +15,12 @@ import type {
   SubscriptionUpdate,
 } from "../domain/types.ts";
 import type { ProbeResult, ProbeWarning, SubscriptionCandidate } from "../probe/types.ts";
-import type { EnrichItemResult, ReaderItem } from "../reader/service.ts";
+import type {
+  EnrichItemResult,
+  ReaderItem,
+  ReaderQuote,
+  SaveQuoteResult,
+} from "../reader/service.ts";
 import type { SourcePollResult } from "../scheduler.ts";
 import type { EmailInbox } from "../sources/email/types.ts";
 import type { Page } from "./pagination.ts";
@@ -68,6 +74,12 @@ export interface SubscriptionService {
 
 export interface ReaderService {
   get(itemId: string): ReaderItem;
+  getState(itemId: string): ItemReaderState;
+  markRead(itemId: string, isRead: boolean): ItemReaderState;
+  setFavorite(itemId: string, isFavorite: boolean): ItemReaderState;
+  saveQuote(itemId: string, input: { text: string; note?: string | null }): SaveQuoteResult;
+  listQuotes(itemId?: string): ReaderQuote[];
+  removeQuote(id: string): { id: string };
   enrich(itemId: string, options?: { force?: boolean }): Promise<EnrichItemResult>;
 }
 
