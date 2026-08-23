@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-paths=(/ /subscriptions /subscriptions/new /destinations /deliveries)
+paths=(/ /reader /subscriptions /subscriptions/new /destinations /deliveries)
 
 if [[ -n "${CURIO_UI_BASE_URL:-}" ]]; then
   cookie_file=$(mktemp)
@@ -24,7 +24,7 @@ fi
 : "${image:=curio/server:local}"
 
 docker run --rm --network "$network" "$image" bun -e '
-const paths = ["/", "/subscriptions", "/subscriptions/new", "/destinations", "/deliveries"];
+const paths = ["/", "/reader", "/subscriptions", "/subscriptions/new", "/destinations", "/deliveries"];
 let cookie = "";
 for (const path of paths) {
   const response = await fetch(`http://curio:3000${path}`, {

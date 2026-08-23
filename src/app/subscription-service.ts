@@ -338,6 +338,15 @@ export class DefaultSubscriptionService implements SubscriptionServiceContract {
     }));
   }
 
+  getItem(id: string): Item {
+    if (!this.items) {
+      throw new AppError("unexpected", "items_unavailable", "Item service is unavailable");
+    }
+    const item = this.items.findById(requireText(id, "item ID"));
+    if (!item) throw new AppError("not_found", "item_not_found", "找不到這篇內容");
+    return item;
+  }
+
   async poll(id: string) {
     const subscription = this.get(id);
     try {
