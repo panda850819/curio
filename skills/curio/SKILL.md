@@ -1,6 +1,6 @@
 ---
 name: curio
-description: 操作 Curio 的來源探索、訂閱、路由、輪詢與投遞驗證。先讀取 agent manifest，再依安全工作流執行；不讀取或輸出 runtime secrets。
+description: 操作 Curio 的來源探索、訂閱、Reader、saved quotes、路由、輪詢與投遞驗證。先讀取 agent manifest，再依安全工作流執行；不讀取或輸出 runtime secrets。
 ---
 
 # Curio agent skill
@@ -39,6 +39,8 @@ CLI 的 mutation 若由 agent 代為執行，也要先取得使用者確認；`-
 - **Source**：外部網站、feed、YouTube channel、X profile 或 Telegram channel。
 - **Subscription**：Curio 對一個 source 的追蹤設定與 cursor。
 - **Item**：來源內容正規化後的單一內容。
+- **Reader state**：item 的 read/unread 與 favorite 狀態。
+- **Saved quote**：經 server 驗證確實存在於 canonical readable text 的 exact excerpt，可附筆記與 detached 狀態。
 - **Destination**：投遞目的地，例如 Telegram chat。
 - **Route**：把 subscription 連到 destination。
 - **Delivery**：一個 item 的投遞狀態與重試紀錄。
@@ -61,12 +63,24 @@ CLI 的 mutation 若由 agent 代為執行，也要先取得使用者確認；`-
 
 重複建立相同 subscription 時，接受服務回傳的 `disposition: "existing"`，不要自行建立第二筆。
 
+### Reader 與 saved quote
+
+1. 用 `GET /api/v1/items` 或 `curio_list_items` 找到 item；清單只回傳安全摘要、Reader state 與 opaque cursor。
+2. 用 `GET /api/v1/items/:id` 或 `curio_get_item` 讀取 bounded canonical text、來源 metadata、Reader URL、state 與 quotes。回應不包含 raw `contentHtml`。
+3. Summary-only item 只有在使用者明確確認後，才能呼叫 `curio_enrich_item(..., confirm: true)`；這會發出 bounded SSRF-safe external request 並保存 snapshot。
+4. Agent 可以從實際回傳的 `readableText` 建議 passage，但建議本身不可寫入 quote。只有使用者明確選取或逐字指定真實段落並確認後，才能呼叫 `curio_save_quote(itemId, text, note?, confirm: true)`。
+5. Quote text 必須逐字存在於目前 canonical readable text。`quote_text_not_found` 表示文字被改寫、正規化後不相同、屬於別篇 item，或由 agent 生成；不可繞過或改成近似文字重試。`readableTextRedacted: true` 時，不建議保存含 `credentials-redacted` marker 的片段，因為 agent-safe response 已刻意不同於原文。
+6. `curio_mark_item_read`、`curio_mark_item_unread`、`curio_favorite_item`、`curio_unfavorite_item`、`curio_remove_quote` 都是確認後 mutation。
+7. 用 `curio_list_quotes` 讀取 quote、筆記、來源與 detached 狀態；detached quote 仍保留，不自行刪除或改寫。
+
 ### 查詢與驗證
 
 - 來源清單：`GET /api/v1/subscriptions`
 - 來源健康：`GET /api/v1/subscriptions/:id`
 - 來源內容：`GET /api/v1/subscriptions/:id/items`
 - 全域時間軸：`GET /api/v1/items`
+- 單篇 Reader：`GET /api/v1/items/:id`
+- Saved quotes：`GET /api/v1/quotes?itemId=:id`
 - 路由：`GET /api/v1/routes?subscriptionId=:id`
 - 投遞：`GET /api/v1/deliveries`
 - 服務健康：`GET /health`
@@ -77,7 +91,7 @@ CLI 的 mutation 若由 agent 代為執行，也要先取得使用者確認；`-
 ### Mutation 與確認
 
 - `subscriptions.ensure`、`subscriptions.create`、`subscriptions.update`、`destinations.create`、`destinations.update`、`destinations.verify`、`routes.create`、`routes.update`、`deliveries.retry`：先說明變更並取得明確確認。
-- `subscriptions.remove` 與 `routes.remove`：一定要明確確認。不要用模糊的「看起來可以」代替確認。
+- `subscriptions.remove`、`routes.remove`、Reader state/favorite、item enrichment、quote create/remove：一定要明確確認。不要用模糊的「看起來可以」代替確認。
 - `subscriptions.poll` 會產生外部請求，並可能建立 delivery；來源已確認後可以執行。
 - 任何 mutation 失敗時先讀 `error.code`，不要盲目重試。只有服務明確表示可重試時才重試。
 
@@ -104,9 +118,9 @@ Repository 提供 stdio MCP transport：
 CURIO_AGENT_URL=http://127.0.0.1:3000 bun run agent:mcp
 ```
 
-它只連到既有 Curio HTTP API，不開新的 host port。將 MCP process 放在 Curio container 或同一個 private network；不要把 `CURIO_AGENT_URL` 指向未受保護的公開服務。先呼叫 `curio_get_manifest`；對明確的 URL 訂閱請優先使用 `curio_subscribe_source`，需要檢查候選或處理多候選時再使用 `curio_probe_source` 與 `curio_create_subscription`，其他流程使用 `curio_create_route`、`curio_poll_source` 與 `curio_verify_destination`。
+它只連到既有 Curio HTTP API，不開新的 host port。將 MCP process 放在 Curio container 或同一個 private network；不要把 `CURIO_AGENT_URL` 指向未受保護的公開服務。先呼叫 `curio_get_manifest`；對明確的 URL 訂閱請優先使用 `curio_subscribe_source`，需要檢查候選或處理多候選時再使用 `curio_probe_source` 與 `curio_create_subscription`。Reader 流程使用 `curio_list_items`、`curio_get_item`、`curio_list_quotes`，確認後才使用 enrich/state/favorite/quote mutation tools；其他流程使用 `curio_create_route`、`curio_poll_source` 與 `curio_verify_destination`。
 
-`curio_remove_source`、`curio_remove_route` 與其他標記為需要確認的 tool 必須傳入 `confirm: true`；agent 只能在使用者明確確認後傳入。
+`curio_remove_source`、`curio_remove_route`、`curio_enrich_item`、所有 Reader state/favorite mutation、`curio_save_quote`、`curio_remove_quote` 與其他標記為需要確認的 tool 必須傳入 `confirm: true`；agent 只能在使用者明確確認後傳入。
 
 ## API 參考
 

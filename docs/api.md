@@ -96,11 +96,11 @@ Cursor 是服務內部的 keyset cursor。不要自行解碼或修改。資料�
 
 `GET /api/v1/agent/manifest` 回傳 agent 可讀的操作清單與安全契約。回應包含 `manifestVersion`、transport envelope、pagination、操作的 HTTP method／path／request fields／side effects，以及需要確認的 mutation 與 destructive operations。Manifest 不包含任何 runtime credentials，並沿用既有 auth guard 與 `X-Request-Id`。
 
-Agent 應先讀取 manifest；對已明確指定的單一 URL 優先使用 `subscriptions.ensure`，需要挑選 candidate 時才使用 `probe → candidate confirmation → subscription` 工作流，再依需求建立 route、poll 或 verify。`cursor` 是 opaque value，不可自行解碼；`subscriptions.remove` 與 `routes.remove` 必須取得明確確認。目的地驗證只回傳 sanitized metadata，不回傳 runtime credential。
+Agent 應先讀取 manifest；對已明確指定的單一 URL 優先使用 `subscriptions.ensure`，需要挑選 candidate 時才使用 `probe → candidate confirmation → subscription` 工作流，再依需求建立 route、poll 或 verify。`cursor` 是 opaque value，不可自行解碼。`subscriptions.remove`、`routes.remove`、item enrichment、Reader state/favorite 與 quote create/remove 都必須取得明確確認。目的地驗證與 Reader response 只回傳 sanitized metadata，不回傳 runtime credential 或 raw unsafe HTML。
 
 ### MCP stdio toolkit
 
-可用 `CURIO_AGENT_URL=http://127.0.0.1:3000 bun run agent:mcp` 啟動 stdio MCP transport。它只呼叫既有 HTTP API，不開新的 host port；應在 Curio container 或同一個 private network 執行。MCP client 會先呼叫 `curio_get_manifest`，再使用 source、route 與 delivery tools。需要確認的工具必須傳入 `confirm: true`。
+可用 `CURIO_AGENT_URL=http://127.0.0.1:3000 bun run agent:mcp` 啟動 stdio MCP transport。它只呼叫既有 HTTP API，不開新的 host port；應在 Curio container 或同一個 private network 執行。MCP client 會先呼叫 `curio_get_manifest`，再使用 source、Reader、quote、route 與 delivery tools。需要確認的工具必須傳入 `confirm: true`；read-only 的 `curio_get_item`、`curio_list_items`、`curio_list_quotes` 不需要確認且沒有 side effect。
 
 ## Probe
 
@@ -196,13 +196,17 @@ Server 會重新 probe 並驗證 candidate identity，不能只相信 client 提
 
 ### `GET /api/v1/subscriptions/:id/items`
 
-取得指定 subscription 的 timeline。
+取得指定 subscription 的 safe timeline。與全域 items endpoint 一樣，不回傳 raw `contentHtml`。
 
 ## Items
 
 ### `GET /api/v1/items`
 
-全域 timeline。可用 `subscriptionId` 篩選。排序固定為 `publishedAt ?? discoveredAt` descending。
+全域 safe timeline。可用 `subscriptionId` 篩選，排序固定為 `publishedAt ?? discoveredAt` descending。每筆包含 bounded summary、sanitized item/source URL、Reader URL 與 read/favorite state；不回傳 raw `contentHtml` 或完整正文。
+
+### `GET /api/v1/items/:id`
+
+回傳單篇 agent-safe Reader record：bounded `readableText`（最多 50,000 字元）、`readableTextTruncated`、`readableTextRedacted`、sanitized source metadata、Reader URL、state、enrichment provenance 與 saved quotes。回應不含 raw stored HTML、runtime credentials、URL credentials 或 query secrets。`readableTextRedacted: true` 時，含 redaction marker 的片段不再是可保存的 exact quote。
 
 ### `POST /api/v1/items/:id/enrich`
 
@@ -212,7 +216,7 @@ Server 會重新 probe 並驗證 candidate identity，不能只相信 client 提
 { "force": false }
 ```
 
-`force` 預設 `false`。成功快照已存在時直接回傳 `disposition: "cached"`，不再送出外部 request；`force: true` 會重新擷取並回傳 `refreshed`。
+`force` 預設 `false`。成功快照已存在時直接回傳 `disposition: "cached"`，不再送出外部 request；`force: true` 會重新擷取並回傳 `refreshed`。HTTP 回應只包含 disposition 與 agent-safe item DTO，不回傳 snapshot HTML。
 
 Enrichment 使用與 probe 相同的 SSRF-safe HTTP client，逐次驗證 DNS 與 redirect，只接受 HTTP(S) 的 `text/html`／`application/xhtml+xml`，限制 response 與 extracted content 大小，不執行 JavaScript 或 headless browser。正文會先轉成 Reader 的 safe typed blocks，再保存到獨立的 `item_enrichments` snapshot；原始 `items` row、subscription cursor、poll 與 delivery 不會被修改。
 

@@ -74,6 +74,9 @@ describe("Curio MCP transport", () => {
     expect(listedTools.map((tool) => tool.name)).toContain("curio_probe_source");
     expect(listedTools.map((tool) => tool.name)).toContain("curio_subscribe_source");
     expect(listedTools.map((tool) => tool.name)).toContain("curio_remove_source");
+    expect(listedTools.map((tool) => tool.name)).toContain("curio_get_item");
+    expect(listedTools.map((tool) => tool.name)).toContain("curio_save_quote");
+    expect(listedTools.map((tool) => tool.name)).toContain("curio_enrich_item");
     expect(listedTools.map((tool) => tool.name).sort()).toEqual(
       [...AGENT_MANIFEST.toolkit.toolNames].sort(),
     );
@@ -140,6 +143,126 @@ describe("Curio MCP transport", () => {
       error: { code: "confirmation_required" },
     });
     expect(context.requests).toHaveLength(1);
+  });
+
+  test("supports Reader reads and confirmation-gated state, enrichment, and quote tools", async () => {
+    const requests: Array<{ method: string; path: string; body: string }> = [];
+    const client = new CurioAgentApiClient("http://curio.test", {
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        const body = await request.text();
+        requests.push({ method: request.method, path: url.pathname, body });
+        if (request.method === "GET" && url.pathname === "/api/v1/items/item-1") {
+          return jsonResponse({
+            id: "item-1",
+            readableText: "A real passage from the article.",
+            readerUrl: "/reader/items/item-1",
+            state: { isRead: false, isFavorite: false },
+          });
+        }
+        if (request.method === "GET" && url.pathname === "/api/v1/quotes") {
+          return jsonResponse([{ id: "quote-1", exactText: "A real passage" }]);
+        }
+        if (request.method === "POST" && url.pathname === "/api/v1/items/item-1/enrich") {
+          return jsonResponse({ disposition: "enriched", item: { id: "item-1" } });
+        }
+        if (request.method === "PATCH" && url.pathname === "/api/v1/items/item-1/reader-state") {
+          return jsonResponse({ itemId: "item-1", ...JSON.parse(body) });
+        }
+        if (request.method === "POST" && url.pathname === "/api/v1/items/item-1/quotes") {
+          const parsed = JSON.parse(body) as { text: string };
+          if (parsed.text === "fabricated") {
+            return jsonResponse(
+              { code: "quote_text_not_found", message: "Quote text is not in the article" },
+              400,
+            );
+          }
+          return jsonResponse({ quote: { id: "quote-2", exactText: parsed.text } }, 201);
+        }
+        if (request.method === "DELETE" && url.pathname === "/api/v1/quotes/quote-2") {
+          return jsonResponse({ id: "quote-2" });
+        }
+        return jsonResponse({ code: "item_not_found", message: "Item not found" }, 404);
+      },
+    });
+    const server = createCurioMcpServer(createCurioAgentTools(client));
+
+    expect(await callTool(server, "curio_get_item", { id: "item-1" })).toMatchObject({
+      ok: true,
+      data: { id: "item-1", readableText: "A real passage from the article." },
+    });
+    expect(await callTool(server, "curio_list_quotes", { itemId: "item-1" })).toMatchObject({
+      ok: true,
+      data: [{ id: "quote-1" }],
+    });
+    expect(requests.map((request) => request.method)).toEqual(["GET", "GET"]);
+
+    const mutations = [
+      ["curio_enrich_item", { id: "item-1" }],
+      ["curio_mark_item_read", { id: "item-1" }],
+      ["curio_mark_item_unread", { id: "item-1" }],
+      ["curio_favorite_item", { id: "item-1" }],
+      ["curio_unfavorite_item", { id: "item-1" }],
+      ["curio_save_quote", { itemId: "item-1", text: "A real passage" }],
+      ["curio_remove_quote", { id: "quote-2" }],
+    ] as const;
+    for (const [name, argumentsValue] of mutations) {
+      expect(await callTool(server, name, argumentsValue)).toMatchObject({
+        ok: false,
+        error: { code: "confirmation_required" },
+      });
+    }
+    expect(requests).toHaveLength(2);
+
+    await callTool(server, "curio_enrich_item", { id: "item-1", confirm: true });
+    await callTool(server, "curio_mark_item_read", { id: "item-1", confirm: true });
+    await callTool(server, "curio_mark_item_unread", { id: "item-1", confirm: true });
+    await callTool(server, "curio_favorite_item", { id: "item-1", confirm: true });
+    await callTool(server, "curio_unfavorite_item", { id: "item-1", confirm: true });
+    expect(
+      await callTool(server, "curio_save_quote", {
+        itemId: "item-1",
+        text: "A real passage",
+        note: "Keep this",
+        confirm: true,
+      }),
+    ).toMatchObject({ ok: true, data: { quote: { id: "quote-2" } } });
+    expect(
+      await callTool(server, "curio_save_quote", {
+        itemId: "item-1",
+        text: "fabricated",
+        confirm: true,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "quote_text_not_found" } });
+    expect(
+      await callTool(server, "curio_remove_quote", { id: "quote-2", confirm: true }),
+    ).toMatchObject({ ok: true, data: { id: "quote-2" } });
+    expect(await callTool(server, "curio_get_item", { id: "missing" })).toMatchObject({
+      ok: false,
+      error: { code: "item_not_found" },
+    });
+
+    expect(requests.slice(2).map(({ method, path }) => `${method} ${path}`)).toEqual([
+      "POST /api/v1/items/item-1/enrich",
+      "PATCH /api/v1/items/item-1/reader-state",
+      "PATCH /api/v1/items/item-1/reader-state",
+      "PATCH /api/v1/items/item-1/reader-state",
+      "PATCH /api/v1/items/item-1/reader-state",
+      "POST /api/v1/items/item-1/quotes",
+      "POST /api/v1/items/item-1/quotes",
+      "DELETE /api/v1/quotes/quote-2",
+      "GET /api/v1/items/missing",
+    ]);
+    expect(requests.slice(2, 9).map((request) => request.body)).toEqual([
+      '{"force":false}',
+      '{"isRead":true}',
+      '{"isRead":false}',
+      '{"isFavorite":true}',
+      '{"isFavorite":false}',
+      '{"text":"A real passage","note":"Keep this"}',
+      '{"text":"fabricated"}',
+    ]);
   });
 
   test("returns JSON-RPC errors for unknown tools and methods", async () => {

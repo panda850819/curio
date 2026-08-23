@@ -74,6 +74,18 @@ function optionalInteger(
   return value;
 }
 
+function optionalBoolean(
+  argumentsValue: Record<string, unknown>,
+  field: string,
+): boolean | undefined {
+  const value = argumentsValue[field];
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") {
+    throw new CurioAgentToolError("invalid_arguments", `${field} must be a boolean`);
+  }
+  return value;
+}
+
 function requiredObject(
   argumentsValue: Record<string, unknown>,
   field: string,
@@ -196,6 +208,182 @@ export function createCurioAgentTools(client: CurioAgentApiClient): CurioAgentTo
           ...listQuery(argumentsValue),
           subscriptionId: optionalString(argumentsValue, "subscriptionId"),
         });
+      },
+    ),
+    tool(
+      "curio_get_item",
+      "Read one bounded canonical article with source metadata, Reader URL, state, and quotes.",
+      "none",
+      {
+        type: "object",
+        properties: { id: stringSchema },
+        required: ["id"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        return client.getResponse(idPath("/api/v1/items", requiredString(argumentsValue, "id")));
+      },
+    ),
+    tool(
+      "curio_list_quotes",
+      "List saved exact-source quotes, optionally filtered by item.",
+      "none",
+      {
+        type: "object",
+        properties: { itemId: stringSchema },
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        return client.getResponse("/api/v1/quotes", {
+          itemId: optionalString(argumentsValue, "itemId"),
+        });
+      },
+    ),
+    tool(
+      "curio_enrich_item",
+      "Fetch and cache bounded static article content for a summary-only item after confirmation.",
+      "required",
+      {
+        type: "object",
+        properties: {
+          id: stringSchema,
+          force: { type: "boolean" },
+          confirm: confirmationSchema,
+        },
+        required: ["id", "confirm"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        requireConfirmation(argumentsValue, "curio_enrich_item");
+        return client.postResponse(
+          `${idPath("/api/v1/items", requiredString(argumentsValue, "id"))}/enrich`,
+          { force: optionalBoolean(argumentsValue, "force") ?? false },
+        );
+      },
+    ),
+    tool(
+      "curio_mark_item_read",
+      "Mark one Reader item read after explicit confirmation.",
+      "required",
+      {
+        type: "object",
+        properties: { id: stringSchema, confirm: confirmationSchema },
+        required: ["id", "confirm"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        requireConfirmation(argumentsValue, "curio_mark_item_read");
+        return client.patchResponse(
+          `${idPath("/api/v1/items", requiredString(argumentsValue, "id"))}/reader-state`,
+          { isRead: true },
+        );
+      },
+    ),
+    tool(
+      "curio_mark_item_unread",
+      "Mark one Reader item unread after explicit confirmation.",
+      "required",
+      {
+        type: "object",
+        properties: { id: stringSchema, confirm: confirmationSchema },
+        required: ["id", "confirm"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        requireConfirmation(argumentsValue, "curio_mark_item_unread");
+        return client.patchResponse(
+          `${idPath("/api/v1/items", requiredString(argumentsValue, "id"))}/reader-state`,
+          { isRead: false },
+        );
+      },
+    ),
+    tool(
+      "curio_favorite_item",
+      "Favorite one Reader item after explicit confirmation.",
+      "required",
+      {
+        type: "object",
+        properties: { id: stringSchema, confirm: confirmationSchema },
+        required: ["id", "confirm"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        requireConfirmation(argumentsValue, "curio_favorite_item");
+        return client.patchResponse(
+          `${idPath("/api/v1/items", requiredString(argumentsValue, "id"))}/reader-state`,
+          { isFavorite: true },
+        );
+      },
+    ),
+    tool(
+      "curio_unfavorite_item",
+      "Remove one Reader item from favorites after explicit confirmation.",
+      "required",
+      {
+        type: "object",
+        properties: { id: stringSchema, confirm: confirmationSchema },
+        required: ["id", "confirm"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        requireConfirmation(argumentsValue, "curio_unfavorite_item");
+        return client.patchResponse(
+          `${idPath("/api/v1/items", requiredString(argumentsValue, "id"))}/reader-state`,
+          { isFavorite: false },
+        );
+      },
+    ),
+    tool(
+      "curio_save_quote",
+      "Save an exact quote that currently exists in one canonical article after confirmation.",
+      "required",
+      {
+        type: "object",
+        properties: {
+          itemId: stringSchema,
+          text: { type: "string", minLength: 1, maxLength: 5000 },
+          note: { type: "string", maxLength: 2000 },
+          confirm: confirmationSchema,
+        },
+        required: ["itemId", "text", "confirm"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        requireConfirmation(argumentsValue, "curio_save_quote");
+        const note = optionalString(argumentsValue, "note");
+        return client.postResponse(
+          `${idPath("/api/v1/items", requiredString(argumentsValue, "itemId"))}/quotes`,
+          {
+            text: requiredString(argumentsValue, "text"),
+            ...(note === undefined ? {} : { note }),
+          },
+        );
+      },
+    ),
+    tool(
+      "curio_remove_quote",
+      "Delete one saved quote after explicit confirmation.",
+      "required",
+      {
+        type: "object",
+        properties: { id: stringSchema, confirm: confirmationSchema },
+        required: ["id", "confirm"],
+        additionalProperties: false,
+      },
+      (value) => {
+        const argumentsValue = objectArguments(value);
+        requireConfirmation(argumentsValue, "curio_remove_quote");
+        return client.deleteResponse(
+          idPath("/api/v1/quotes", requiredString(argumentsValue, "id")),
+        );
       },
     ),
     tool(

@@ -74,6 +74,8 @@ export interface SubscriptionService {
 
 export interface ReaderService {
   get(itemId: string): ReaderItem;
+  getPreview(itemId: string): string;
+  getReadableText(itemId: string): string;
   getState(itemId: string): ItemReaderState;
   markRead(itemId: string, isRead: boolean): ItemReaderState;
   setFavorite(itemId: string, isFavorite: boolean): ItemReaderState;
