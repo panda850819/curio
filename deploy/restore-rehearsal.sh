@@ -3,8 +3,8 @@ set -euo pipefail
 umask 077
 
 ROOT=${CURIO_ROOT:-/opt/curio}
-REVISION=${CURIO_REVISION:-b0062f73de9102001de30d673c8963ac2a458c2b}
-IMAGE=${CURIO_IMAGE:-curio/server:b0062f7}
+REVISION=${CURIO_REVISION:-677e9586872a35f482f5438e992cfd4315fa342c}
+IMAGE=${CURIO_IMAGE:-curio/server:677e958}
 BACKUP=${1:-}
 RESTORE_DIR="$ROOT/restore-test"
 RESTORE_DB="$RESTORE_DIR/curio.db"
@@ -35,7 +35,8 @@ docker run --rm \
   --volume "$RESTORE_DIR:/restore" \
   --env DATABASE_PATH=/restore/curio.db \
   "$IMAGE" bun run src/db/migrate.ts >/dev/null
-expected_migrations=$'001_initialize.sql\n002_core_ingestion.sql\n003_subscription_health.sql\n004_subscription_scheduling.sql\n005_telegram_delivery.sql\n006_routes.sql\n007_telegram_bot.sql\n008_item_enrichments.sql\n009_reader_state_quotes.sql'
+expected_migrations=$'001_initialize.sql\n002_core_ingestion.sql\n003_subscription_health.sql\n004_subscription_scheduling.sql\n005_telegram_delivery.sql\n006_routes.sql\n007_telegram_bot.sql\n008_item_enrichments.sql\n009_reader_state_quotes.sql
+010_reader_visibility.sql'
 applied_migrations=$(sqlite3 "$RESTORE_DB" 'SELECT name FROM schema_migrations ORDER BY version;')
 if [[ "$applied_migrations" != "$expected_migrations" ]]; then
   echo "restored migration set does not match release $REVISION" >&2
