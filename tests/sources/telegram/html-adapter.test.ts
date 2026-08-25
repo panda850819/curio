@@ -60,7 +60,7 @@ describe("Telegram HTML source", () => {
         messageId: 229,
         username: "journey_of_someone",
         title: "投机之路",
-        contentText: "第一行 & 內容 第二行",
+        contentText: "第一行 & 內容\n第二行",
         url: "https://t.me/journey_of_someone/229",
         publishedAt: Date.parse("2026-08-17T01:02:03Z"),
       },

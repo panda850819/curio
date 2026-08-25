@@ -22,9 +22,11 @@ function harness(
   const client: ProbeHttpClient = {
     get: async (url, _maximumBytes, headers) => {
       requests.push({ url, headers });
+      const effectiveStatus =
+        status === 304 && Object.keys(headers ?? {}).length === 0 ? 200 : status;
       return {
         url,
-        status,
+        status: effectiveStatus,
         headers: {
           get: (name: string) => {
             if (name === "content-type") return "text/html; charset=utf-8";
@@ -88,12 +90,21 @@ describe("HtmlSourceAdapter", () => {
     ).toHaveLength(1);
     expect(context.app.services.deliveries.list()).toHaveLength(0);
 
+    context.database.query("UPDATE items SET content_html = NULL").run();
     context.setBody(page("same", "200"));
+    context.setNotModified();
     const noiseOnly = await context.app.services.subscriptions.poll(context.subscription.id);
     expect(noiseOnly.status).toBe("not_modified");
-    expect(
-      context.app.services.subscriptions.listItemsPage(20, context.subscription.id).items,
-    ).toHaveLength(1);
+    const repairedItems = context.app.services.subscriptions.listItemsPage(
+      20,
+      context.subscription.id,
+    ).items;
+    expect(repairedItems).toHaveLength(1);
+    expect(repairedItems[0]?.contentHtml).toContain("<article><p>same</p></article>");
+    expect(context.requests.slice(-2).map((request) => request.headers)).toEqual([
+      { "If-None-Match": '"v1"', "If-Modified-Since": "Wed, 01 Jan 2025 00:00:00 GMT" },
+      {},
+    ]);
 
     context.setBody(page("changed", "300"), '"v2"');
     const changed = await context.app.services.subscriptions.poll(context.subscription.id);
@@ -102,6 +113,12 @@ describe("HtmlSourceAdapter", () => {
       context.app.services.subscriptions.listItemsPage(20, context.subscription.id).items,
     ).toHaveLength(2);
     expect(context.app.services.deliveries.list()).toHaveLength(1);
+    const latest = context.app.services.subscriptions.listItemsPage(1, context.subscription.id)
+      .items[0];
+    expect(latest?.contentHtml).toContain("<article><p>changed</p></article>");
+    expect(context.app.services.reader.get(latest?.id ?? "").presentation.blocks).toMatchObject([
+      { kind: "paragraph", text: "changed" },
+    ]);
 
     context.setBody(page("changed", "400"), '"v3"');
     await context.app.services.subscriptions.poll(context.subscription.id);

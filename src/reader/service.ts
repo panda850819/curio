@@ -9,6 +9,7 @@ import {
   normalizeHtmlDocument,
 } from "../sources/html/normalize.ts";
 import { parseReaderHtml, readerBlocksText, renderReaderBlocks } from "./content.ts";
+import { presentReaderContent, type ReaderContentPresentation } from "./presentation.ts";
 import type { ItemEnrichmentRepository } from "./repository.ts";
 import type { ReaderStateRepository } from "./state-repository.ts";
 
@@ -33,6 +34,7 @@ export interface ReaderItem {
   contentHtml: string | null;
   contentText: string | null;
   readableText: string;
+  presentation: ReaderContentPresentation;
   state: ItemReaderState;
   quotes: ReaderQuote[];
 }
@@ -105,7 +107,7 @@ function safeArticle(html: string, baseUrl: string): { contentHtml: string; cont
         candidate.selector,
         MAXIMUM_ARTICLE_BYTES,
       );
-      const blocks = parseReaderHtml(normalized.canonical, baseUrl);
+      const blocks = parseReaderHtml(normalized.readableHtml, baseUrl);
       const contentText = readerBlocksText(blocks);
       if (contentText.length < MINIMUM_ARTICLE_CHARACTERS) continue;
       const contentHtml = renderReaderBlocks(blocks);
@@ -126,16 +128,12 @@ function safeArticle(html: string, baseUrl: string): { contentHtml: string; cont
   throw new AppError("validation", "enrichment_content_empty", "找不到足夠的靜態文章正文");
 }
 
-function readableText(input: {
+function readerPresentation(input: {
   item: Item;
   contentHtml: string | null;
   contentText: string | null;
-}): string {
-  if (input.contentHtml) {
-    const parsed = readerBlocksText(parseReaderHtml(input.contentHtml, input.item.url));
-    if (parsed) return parsed;
-  }
-  return input.contentText?.trim() || input.item.summary?.trim() || "";
+}): ReaderContentPresentation {
+  return presentReaderContent(input);
 }
 
 function defaultReaderState(item: Item): ItemReaderState {
@@ -184,17 +182,18 @@ export class DefaultReaderService {
     const enrichment = this.enrichments.findByItemId(item.id);
     const contentHtml = enrichment?.contentHtml ?? item.contentHtml ?? null;
     const contentText = enrichment?.contentText ?? item.contentText ?? null;
-    const currentText = readableText({ item, contentHtml, contentText });
+    const presentation = readerPresentation({ item, contentHtml, contentText });
     const quotes = this.readerState.listQuotes(item.id).map((quote) => ({
       ...quote,
-      detached: !quoteAttached(quote, currentText),
+      detached: !quoteAttached(quote, presentation.readableText),
     }));
     return {
       item,
       enrichment,
       contentHtml,
       contentText,
-      readableText: currentText,
+      readableText: presentation.readableText,
+      presentation,
       state: this.readerState.findState(item.id) ?? defaultReaderState(item),
       quotes,
     };
@@ -216,11 +215,11 @@ export class DefaultReaderService {
   getReadableText(itemId: string): string {
     const item = itemById(this.items, itemId);
     const enrichment = this.enrichments.findByItemId(item.id);
-    return readableText({
+    return readerPresentation({
       item,
       contentHtml: enrichment?.contentHtml ?? item.contentHtml ?? null,
       contentText: enrichment?.contentText ?? item.contentText ?? null,
-    });
+    }).readableText;
   }
 
   getState(itemId: string): ItemReaderState {
@@ -240,11 +239,11 @@ export class DefaultReaderService {
 
   saveQuote(itemId: string, input: { text: string; note?: string | null }): SaveQuoteResult {
     const readerItem = this.get(itemId);
-    const exactText = input.text.trim();
+    const exactText = input.text.replaceAll("\r\n", "\n").replaceAll("\r", "\n").trim();
     if (!exactText || exactText.length > 5_000 || exactText.includes("\u0000")) {
       throw new AppError("validation", "quote_text_invalid", "摘錄文字必須介於 1 到 5000 個字元");
     }
-    const note = input.note?.trim() || null;
+    const note = input.note?.replaceAll("\r\n", "\n").replaceAll("\r", "\n").trim() || null;
     if (note && (note.length > 2_000 || note.includes("\u0000"))) {
       throw new AppError("validation", "quote_note_invalid", "摘錄筆記不能超過 2000 個字元");
     }
@@ -281,11 +280,11 @@ export class DefaultReaderService {
     return this.readerState.listQuotes(itemId).map((quote) => {
       const item = itemById(this.items, quote.itemId);
       const enrichment = this.enrichments.findByItemId(item.id);
-      const currentText = readableText({
+      const currentText = readerPresentation({
         item,
         contentHtml: enrichment?.contentHtml ?? item.contentHtml ?? null,
         contentText: enrichment?.contentText ?? item.contentText ?? null,
-      });
+      }).readableText;
       return { ...quote, detached: !quoteAttached(quote, currentText) };
     });
   }

@@ -81,6 +81,22 @@ const BLOCK_KINDS: Partial<Record<string, ReaderBlockKind>> = {
   pre: "code",
 };
 
+const STRUCTURAL_BOUNDARIES = new Set([
+  "address",
+  "article",
+  "dd",
+  "div",
+  "dt",
+  "figcaption",
+  "footer",
+  "header",
+  "main",
+  "section",
+  "td",
+  "th",
+  "tr",
+]);
+
 function decodeHtmlEntities(value: string): string {
   return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]+);/giu, (entity, token: string) => {
     if (token.startsWith("#")) {
@@ -124,7 +140,9 @@ function safeLink(value: string | null, baseUrl?: string | null): string | null 
 }
 
 function addBreak(frame: OpenFrame): void {
-  if (frame.text.trim()) frame.html += "<br><br>";
+  if (!frame.text.trim()) return;
+  frame.html += "<br><br>";
+  frame.text += "\n\n";
 }
 
 export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBlock[] {
@@ -213,8 +231,18 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
           return;
         }
 
+        if (STRUCTURAL_BOUNDARIES.has(tag)) {
+          if (frame?.rootId === null && frame.text.trim()) flushFrame();
+          element.onEndTag(() => {
+            if (frame?.rootId === null && frame.text.trim()) flushFrame();
+          });
+          return;
+        }
+
         if (tag === "br") {
-          ensureParagraph().html += "<br>";
+          const active = ensureParagraph();
+          active.html += "<br>";
+          active.text += "\n";
           return;
         }
 
@@ -276,11 +304,170 @@ export function parseReaderText(text: string): ReaderBlock[] {
     }));
 }
 
+interface InlineMarkdown {
+  html: string;
+  text: string;
+}
+
+function normalizeMarkdownParagraph(value: string): string {
+  const lines = value.split("\n");
+  return lines
+    .map((line, index) => {
+      if (index === lines.length - 1) return line;
+      return line.endsWith("  ") ? `${line.slice(0, -2)}\n` : `${line.trimEnd()} `;
+    })
+    .join("");
+}
+
+function parseMarkdownInline(value: string, baseUrl?: string | null): InlineMarkdown {
+  const normalized = normalizeMarkdownParagraph(value);
+  const pattern =
+    /(\[([^\]\n]+)\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)\)|`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__|\*([^*\n]+)\*|_([^_\n]+)_|\n)/gu;
+  let html = "";
+  let text = "";
+  let position = 0;
+  let match = pattern.exec(normalized);
+  while (match) {
+    const plain = normalized.slice(position, match.index);
+    html += escapeHtml(plain);
+    text += plain;
+    const token = match[0];
+    if (token === "\n") {
+      html += "<br>";
+      text += "\n";
+    } else if (match[2] !== undefined) {
+      const label = match[2];
+      const href = safeLink(match[3] ?? null, baseUrl);
+      html += href
+        ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`
+        : escapeHtml(label);
+      text += label;
+    } else if (match[4] !== undefined) {
+      html += `<code>${escapeHtml(match[4])}</code>`;
+      text += match[4];
+    } else {
+      const strong = match[5] ?? match[6];
+      const emphasis = match[7] ?? match[8];
+      const visible = strong ?? emphasis ?? token;
+      html +=
+        strong !== undefined
+          ? `<strong>${escapeHtml(visible)}</strong>`
+          : `<em>${escapeHtml(visible)}</em>`;
+      text += visible;
+    }
+    position = match.index + token.length;
+    match = pattern.exec(normalized);
+  }
+  const tail = normalized.slice(position);
+  return { html: html + escapeHtml(tail), text: text + tail };
+}
+
+export function parseReaderMarkdown(markdown: string, baseUrl?: string | null): ReaderBlock[] {
+  const source = markdown
+    .slice(0, MAX_READER_SOURCE_CHARACTERS)
+    .replaceAll("\r\n", "\n")
+    .replaceAll("\r", "\n");
+  const lines = source.split("\n");
+  const blocks: ReaderBlock[] = [];
+  let paragraph: string[] = [];
+  let code: string[] | null = null;
+
+  function flushParagraph(): void {
+    if (paragraph.length === 0) return;
+    const parsed = parseMarkdownInline(paragraph.join("\n"), baseUrl);
+    if (parsed.text.trim()) blocks.push({ kind: "paragraph", ...parsed });
+    paragraph = [];
+  }
+
+  for (const line of lines) {
+    if (/^```/u.test(line)) {
+      flushParagraph();
+      if (code === null) code = [];
+      else {
+        const text = code.join("\n");
+        blocks.push({ kind: "code", html: escapeHtml(text), text });
+        code = null;
+      }
+      continue;
+    }
+    if (code !== null) {
+      code.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      flushParagraph();
+      continue;
+    }
+    const heading = /^(#{1,3})\s+(.+)$/u.exec(line);
+    if (heading?.[1] && heading[2]) {
+      flushParagraph();
+      const parsed = parseMarkdownInline(heading[2], baseUrl);
+      blocks.push({ kind: `heading-${heading[1].length}` as ReaderBlockKind, ...parsed });
+      continue;
+    }
+    const quote = /^\s*>\s?(.*)$/u.exec(line);
+    if (quote) {
+      flushParagraph();
+      const parsed = parseMarkdownInline(quote[1] ?? "", baseUrl);
+      if (parsed.text.trim()) blocks.push({ kind: "quote", ...parsed });
+      continue;
+    }
+    const unordered = /^\s*[-+*]\s+(.+)$/u.exec(line);
+    const ordered = /^\s*\d+[.)]\s+(.+)$/u.exec(line);
+    const item = unordered?.[1] ?? ordered?.[1];
+    if (item) {
+      flushParagraph();
+      const parsed = parseMarkdownInline(item, baseUrl);
+      blocks.push({ kind: "list-item", ordered: Boolean(ordered), ...parsed });
+      continue;
+    }
+    paragraph.push(line);
+  }
+  if (code !== null) {
+    const text = code.join("\n");
+    if (text.trim()) blocks.push({ kind: "code", html: escapeHtml(text), text });
+  }
+  flushParagraph();
+  return blocks;
+}
+
+export function parseReaderMessageText(text: string): ReaderBlock[] {
+  return text
+    .slice(0, MAX_READER_SOURCE_CHARACTERS)
+    .replaceAll("\r\n", "\n")
+    .replaceAll("\r", "\n")
+    .split(/\n\s*\n/u)
+    .flatMap((section): ReaderBlock[] => {
+      const value = section.trim();
+      if (!value) return [];
+      const lines = value.split("\n");
+      if (/^\s*>/u.test(lines[0] ?? "")) {
+        const quote = lines.map((line) => line.replace(/^\s*>\s?/u, "")).join("\n");
+        return [{ kind: "quote", html: escapeHtml(quote).replaceAll("\n", "<br>"), text: quote }];
+      }
+      return parseReaderText(value);
+    });
+}
+
 export function readerBlocksText(blocks: ReaderBlock[]): string {
-  return blocks
-    .map((block) => block.text.trim())
-    .filter(Boolean)
-    .join("\n\n");
+  const sections: string[] = [];
+  let listItems: string[] = [];
+  const flushList = () => {
+    if (listItems.length > 0) sections.push(listItems.join("\n"));
+    listItems = [];
+  };
+  for (const block of blocks) {
+    const text = block.text.trim();
+    if (!text) continue;
+    if (block.kind === "list-item") {
+      listItems.push(text);
+      continue;
+    }
+    flushList();
+    sections.push(text);
+  }
+  flushList();
+  return sections.join("\n\n");
 }
 
 export function renderReaderBlocks(blocks: ReaderBlock[]): string {

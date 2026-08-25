@@ -265,6 +265,47 @@ describe("ItemRepository", () => {
     database.close();
   });
 
+  test("orders and paginates by publication time with discovery fallback", () => {
+    const database = createDatabase();
+    const subscriptions = new SubscriptionRepository(
+      database,
+      sequence("subscription"),
+      () => 1_000,
+    );
+    const items = new ItemRepository(database, sequence("item"));
+    const subscription = subscriptions.create({
+      adapter: "rss",
+      sourceKey: "timeline-feed",
+      sourceUrl: "https://example.com/timeline.xml",
+    });
+
+    items.recordPoll({
+      subscriptionId: subscription.id,
+      items: [
+        { externalId: "old-published", publishedAt: 500 },
+        { externalId: "discovery-fallback" },
+        { externalId: "published-tie-first", publishedAt: 800 },
+        { externalId: "published-tie-second", publishedAt: 800 },
+      ],
+      cursor: null,
+      polledAt: 900,
+    });
+
+    const first = items.listTimelinePage(2);
+    expect(first.hasMore).toBe(true);
+    expect(first.items.map((item) => item.externalId)).toEqual([
+      "discovery-fallback",
+      "published-tie-second",
+    ]);
+    const second = items.listTimelinePage(2, undefined, { timestamp: 800, id: "item-4" });
+    expect(second.items.map((item) => item.externalId)).toEqual([
+      "published-tie-first",
+      "old-published",
+    ]);
+
+    database.close();
+  });
+
   test("rejects missing external IDs before writing", () => {
     const database = createDatabase();
     const subscriptions = new SubscriptionRepository(

@@ -212,6 +212,23 @@ function serialize(node: HtmlNode, baseUrl: string): string {
   return `<${node.tag}${canonicalAttributes(node, baseUrl)}>${children}</${node.tag}>`;
 }
 
+function serializeReadable(node: HtmlNode, baseUrl: string, preserveWhitespace = false): string {
+  if (node.kind === "text") {
+    const value = preserveWhitespace
+      ? node.value.replaceAll("\r\n", "\n").replaceAll("\r", "\n")
+      : node.value.replace(/\s+/gu, " ");
+    return value.replaceAll("<", "&lt;");
+  }
+  if (isDropped(node)) return "";
+  const preserveChildren = preserveWhitespace || node.tag === "pre";
+  const children = node.children
+    .map((child) => serializeReadable(child, baseUrl, preserveChildren))
+    .join("");
+  if (node.tag === "#root") return children;
+  if (VOID_TAGS.has(node.tag)) return `<${node.tag}${canonicalAttributes(node, baseUrl)}>`;
+  return `<${node.tag}${canonicalAttributes(node, baseUrl)}>${children}</${node.tag}>`;
+}
+
 export function textContent(node: HtmlNode): string {
   if (node.kind === "text") return node.value;
   if (isDropped(node)) return "";
@@ -353,15 +370,17 @@ export function normalizeHtmlDocument(
   const canonical = [titleCanonical, ...selected.map((node) => serialize(node, baseUrl))]
     .filter(Boolean)
     .join("\n");
+  const readableHtml = selected.map((node) => serializeReadable(node, baseUrl)).join("\n");
   const text = normalizedText(
     [titleNode && !selector ? textContent(titleNode) : "", ...selected.map(textContent)].join(" "),
   );
   if (!canonical || !text) throw new HtmlContentEmptyError();
   if (
     new TextEncoder().encode(canonical).byteLength > maximumBytes ||
+    new TextEncoder().encode(readableHtml).byteLength > maximumBytes ||
     new TextEncoder().encode(text).byteLength > maximumBytes
   ) {
     throw new HtmlContentTooLargeError();
   }
-  return { canonical, text, title: pageTitle(root) };
+  return { canonical, readableHtml, text, title: pageTitle(root) };
 }

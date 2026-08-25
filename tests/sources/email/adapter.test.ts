@@ -85,7 +85,7 @@ describe("EmailSourceAdapter", () => {
       subject: "HTML letter",
       date: null,
       text: null,
-      html: "<p>Hello&nbsp;there</p><script>secret()</script><p>Next</p>",
+      html: "<p>Hello&nbsp;there</p><script>secret()</script><p>Next</p><blockquote><p>Quoted reply</p><p>Second line</p></blockquote>",
       url: null,
       headers: {},
     });
@@ -96,6 +96,12 @@ describe("EmailSourceAdapter", () => {
     expect(item?.contentText).toContain("Hello there");
     expect(item?.contentText).toContain("Next");
     expect(item?.contentText).not.toContain("secret");
+    expect(item?.contentText).toContain("> Quoted reply");
+    expect(context.app.services.reader.get(item?.id ?? "").presentation.blocks).toMatchObject([
+      { kind: "paragraph", text: "Hello there" },
+      { kind: "paragraph", text: "Next" },
+      { kind: "quote", text: "Quoted reply\nSecond line" },
+    ]);
     expect(await context.app.scheduler.tick()).toBe(0);
 
     context.app.close();

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { parseReaderHtml, parseReaderText, renderReaderBlocks } from "../../src/reader/content.ts";
+import {
+  parseReaderHtml,
+  parseReaderMarkdown,
+  parseReaderText,
+  readerBlocksText,
+  renderReaderBlocks,
+} from "../../src/reader/content.ts";
 
 describe("Reader content", () => {
   test("turns supported article HTML into typed blocks", () => {
@@ -28,7 +34,9 @@ describe("Reader content", () => {
     expect(renderReaderBlocks(blocks)).toContain(
       "<blockquote>第一段引文<br><br>第二段引文</blockquote>",
     );
+    expect(readerBlocksText(blocks)).toContain("第一段引文\n\n第二段引文");
     expect(renderReaderBlocks(blocks)).toContain("<ul><li>第一點</li><li>第二點</li></ul>");
+    expect(readerBlocksText(blocks)).toContain("第一點\n第二點");
     expect(renderReaderBlocks(blocks)).toContain(
       "<pre><code>const answer = 42 &lt; 50;</code></pre>",
     );
@@ -79,5 +87,24 @@ describe("Reader content", () => {
     expect(renderReaderBlocks(parseReaderText("第一段 <script>\n仍是文字\n\n第二段 & more"))).toBe(
       "<p>第一段 &lt;script&gt;<br>仍是文字</p><p>第二段 &amp; more</p>",
     );
+  });
+
+  test("keeps HTML line breaks aligned with canonical quote text", () => {
+    const blocks = parseReaderHtml("<div>第一行<br>第二行</div><div>第三段</div>");
+    expect(renderReaderBlocks(blocks)).toBe("<p>第一行<br>第二行</p><p>第三段</p>");
+    expect(readerBlocksText(blocks)).toBe("第一行\n第二行\n\n第三段");
+  });
+
+  test("parses a bounded Markdown subset without trusting raw HTML or unsafe links", () => {
+    const blocks = parseReaderMarkdown(
+      "## 小節\n\n段落 **重點**  [安全](https://example.com)\n仍是同一段\n\n1. 一\n2. 二\n\n```\n<script>code</script>\n```\n\n[危險](javascript:run())",
+    );
+    const rendered = renderReaderBlocks(blocks);
+    expect(rendered).toContain("<h2>小節</h2>");
+    expect(rendered).toContain('段落 <strong>重點</strong>  <a href="https://example.com/"');
+    expect(rendered).toContain("<ol><li>一</li><li>二</li></ol>");
+    expect(rendered).toContain("<pre><code>&lt;script&gt;code&lt;/script&gt;</code></pre>");
+    expect(rendered).toContain("<p>危險</p>");
+    expect(rendered).not.toContain("javascript:");
   });
 });

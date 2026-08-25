@@ -7,6 +7,7 @@ import { sanitizeErrorMessage } from "../../security/redaction.ts";
 import {
   allElements,
   type HtmlElementNode,
+  type HtmlNode,
   parentMap,
   parseHtml,
   textContent,
@@ -129,6 +130,22 @@ function cleanText(value: string): string {
   return decodeHtmlEntities(value).replace(/\s+/gu, " ").trim();
 }
 
+function telegramTextContent(node: HtmlNode): string {
+  if (node.kind === "text") return node.value;
+  if (node.tag === "script" || node.tag === "style" || node.tag === "noscript") return "";
+  if (node.tag === "br") return "\n";
+  const content = node.children.map(telegramTextContent).join("");
+  return node.tag === "p" || node.tag === "div" ? `${content}\n` : content;
+}
+
+function cleanMultilineText(value: string): string {
+  return decodeHtmlEntities(value)
+    .replace(/[^\S\n]+/gu, " ")
+    .replace(/ *\n */gu, "\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+}
+
 function textWithoutNestedMessageText(node: HtmlElementNode): string {
   const parents = parentMap(node);
   const textNodes = allElements(node).filter((candidate) => {
@@ -150,7 +167,7 @@ function textWithoutNestedMessageText(node: HtmlElementNode): string {
     }
     return true;
   });
-  return cleanText(textNodes.map(textContent).join("\n"));
+  return cleanMultilineText(textNodes.map(telegramTextContent).join("\n"));
 }
 
 function parsePost(node: HtmlElementNode): TelegramHtmlPost | null {
