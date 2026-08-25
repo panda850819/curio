@@ -454,6 +454,17 @@ for (const link of document.querySelectorAll('.reader-row-link')) {
     link.setAttribute('aria-label', '正在開啟文章');
   });
 }
+const markImageMissing = (image) => {
+  const figure = image.closest('.reader-image');
+  if (!figure) return;
+  figure.classList.add('reader-image-missing');
+  const fallback = figure.querySelector('[data-image-fallback]');
+  if (fallback) fallback.hidden = false;
+};
+for (const image of document.querySelectorAll('.reader-image img')) {
+  image.addEventListener('error', () => markImageMissing(image));
+  if (image.complete && image.naturalWidth === 0) markImageMissing(image);
+}
 const readerBody = document.querySelector('[data-reader-body]');
 const quoteForm = document.querySelector('[data-quote-form]');
 const selectionHint = document.querySelector('[data-selection-hint]');
@@ -701,6 +712,13 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
 .reader-body blockquote { margin: 1.5rem 0; padding: 1rem 1.1rem; color: var(--ink-soft); background: var(--paper-deep); border-radius: var(--radius-sm); }
 .reader-body pre { max-width: 100%; margin: 1.5rem 0; overflow-x: auto; padding: 1rem; color: var(--ink); background: var(--paper-deep); border: 1px solid var(--line); border-radius: var(--radius-sm); font: 0.88rem/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .reader-body :not(pre) > code { padding: 0.08em 0.28em; background: var(--paper-deep); border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+.reader-image { margin: 1.6rem 0; }
+.reader-image img { display: block; width: auto; max-width: 100%; height: auto; max-height: 78vh; margin: 0 auto; border-radius: 4px; outline: 1px solid rgba(42, 34, 23, 0.12); outline-offset: -1px; object-fit: contain; }
+.reader-image-missing { min-height: 6rem; display: grid; place-items: center; padding: 1rem; color: var(--ink-soft); background: var(--paper-deep); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); }
+.reader-image-missing img { display: none; }
+.reader-image-fallback { font-size: 0.82rem; text-align: center; user-select: none; }
+.reader-body p > a:only-child { color: inherit; text-decoration: none; }
+@media (hover: hover) { .reader-body p > a:only-child:hover { color: var(--rust); text-decoration: underline; } }
 .reader-quote-capture, .reader-saved-quotes { padding: 1.75rem 0; border-top: 1px solid var(--line); }
 .reader-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.8rem; }
 .reader-section-heading h2 { margin: 0; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; font-size: 1.25rem; font-weight: 600; }
@@ -1390,7 +1408,7 @@ export function createUiHandler(app: CurioApplication, options: UiHandlerOptions
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
       "content-security-policy":
-        "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        "default-src 'self'; img-src 'self' https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
       "x-content-type-options": "nosniff",
       "referrer-policy": "same-origin",
     });

@@ -1,3 +1,5 @@
+import ipaddr from "ipaddr.js";
+
 export type ReaderBlockKind =
   | "heading-1"
   | "heading-2"
@@ -5,13 +7,18 @@ export type ReaderBlockKind =
   | "paragraph"
   | "list-item"
   | "quote"
-  | "code";
+  | "code"
+  | "image";
 
 export interface ReaderBlock {
   kind: ReaderBlockKind;
   html: string;
   text: string;
   ordered?: boolean;
+  src?: string;
+  alt?: string;
+  width?: number;
+  height?: number;
 }
 
 interface OpenFrame {
@@ -139,6 +146,52 @@ function safeLink(value: string | null, baseUrl?: string | null): string | null 
   }
 }
 
+function imageDimension(value: string | number | null | undefined): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 8_192 ? parsed : undefined;
+}
+
+export function readerImageBlock(
+  source: string | null | undefined,
+  alt = "",
+  baseUrl?: string | null,
+  width?: string | number | null,
+  height?: string | number | null,
+): ReaderBlock | null {
+  const src = safeLink(source ?? null, baseUrl);
+  if (!src || src.length > 4_096) return null;
+  const url = new URL(src);
+  if (url.protocol !== "https:") return null;
+  const hostname = url.hostname.replace(/^\[|\]$/gu, "").toLowerCase();
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    (ipaddr.isValid(hostname) && ipaddr.process(hostname).range() !== "unicast")
+  ) {
+    return null;
+  }
+  const boundedWidth = imageDimension(width);
+  const boundedHeight = imageDimension(height);
+  if (
+    (boundedWidth !== undefined && boundedWidth <= 2) ||
+    (boundedHeight !== undefined && boundedHeight <= 2)
+  ) {
+    return null;
+  }
+  return {
+    kind: "image",
+    html: "",
+    text: "",
+    src,
+    alt: decodeHtmlEntities(alt).replace(/\s+/gu, " ").trim().slice(0, 500),
+    ...(boundedWidth ? { width: boundedWidth } : {}),
+    ...(boundedHeight ? { height: boundedHeight } : {}),
+  };
+}
+
 function addBreak(frame: OpenFrame): void {
   if (!frame.text.trim()) return;
   frame.html += "<br><br>";
@@ -236,6 +289,21 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
           element.onEndTag(() => {
             if (frame?.rootId === null && frame.text.trim()) flushFrame();
           });
+          return;
+        }
+
+        if (tag === "img") {
+          const image = readerImageBlock(
+            element.getAttribute("src"),
+            element.getAttribute("alt") ?? "",
+            baseUrl,
+            element.getAttribute("width"),
+            element.getAttribute("height"),
+          );
+          if (image) {
+            if (frame?.text.trim()) flushFrame();
+            blocks.push(image);
+          }
           return;
         }
 
@@ -398,6 +466,13 @@ export function parseReaderMarkdown(markdown: string, baseUrl?: string | null): 
       flushParagraph();
       continue;
     }
+    const image = /^!\[([^\]\n]*)\]\(([^\s()]+)\)$/u.exec(line.trim());
+    if (image) {
+      flushParagraph();
+      const block = readerImageBlock(image[2], image[1] ?? "", baseUrl);
+      if (block) blocks.push(block);
+      continue;
+    }
     const heading = /^(#{1,3})\s+(.+)$/u.exec(line);
     if (heading?.[1] && heading[2]) {
       flushParagraph();
@@ -499,6 +574,12 @@ export function renderReaderBlocks(blocks: ReaderBlock[]): string {
       output.push(`<blockquote>${block.html}</blockquote>`);
     } else if (block.kind === "code") {
       output.push(`<pre><code>${block.html}</code></pre>`);
+    } else if (block.kind === "image" && block.src) {
+      const dimensions = `${block.width ? ` width="${block.width}"` : ""}${block.height ? ` height="${block.height}"` : ""}`;
+      const alt = block.alt?.trim() || "圖片無法載入";
+      output.push(
+        `<figure class="reader-image"><img src="${escapeHtml(block.src)}" alt="${escapeHtml(block.alt ?? "")}"${dimensions} loading="lazy" decoding="async" referrerpolicy="no-referrer"><figcaption class="reader-image-fallback" data-image-fallback hidden>${escapeHtml(alt)}</figcaption></figure>`,
+      );
     } else {
       output.push(`<p>${block.html}</p>`);
     }

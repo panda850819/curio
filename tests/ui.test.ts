@@ -126,6 +126,8 @@ describe("Curio Web UI", () => {
                   <ul><li>清單第一點</li><li>清單第二點</li></ul>
                   <blockquote><p>值得保留的來源引文。</p></blockquote>
                   <pre><code>const curio = "reader";</code></pre>
+                  <img src="/cover.jpg" alt="文章封面" width="1200" height="800" onerror="steal()">
+                  <img src="data:image/png;base64,unsafe" alt="unsafe">
                   <script>steal()</script><iframe src="https://tracker.example"></iframe>
                   <form><input name="secret"></form>
                 </article>
@@ -162,6 +164,7 @@ describe("Curio Web UI", () => {
       new Request(`http://curio.test/reader/items/${item?.id ?? ""}`),
     );
     expect(article.status).toBe(200);
+    expect(article.headers.get("content-security-policy")).toContain("img-src 'self' https:");
     const articleHtml = await article.text();
     const readerBody =
       /<div class="reader-body"[^>]*>([\s\S]*?)<\/div>/u.exec(articleHtml)?.[1] ?? "";
@@ -181,6 +184,10 @@ describe("Curio Web UI", () => {
     expect(readerBody).toContain(
       'href="https://example.com/related?q=one" target="_blank" rel="noopener noreferrer"',
     );
+    expect(readerBody).toContain(
+      '<img src="https://example.com/cover.jpg" alt="文章封面" width="1200" height="800" loading="lazy" decoding="async" referrerpolicy="no-referrer">',
+    );
+    expect(readerBody).not.toContain("data:image");
     expect(readerBody).not.toContain("onclick");
     expect(readerBody).not.toContain("javascript:");
     expect(readerBody).not.toContain("<script");

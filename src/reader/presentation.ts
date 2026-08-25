@@ -6,6 +6,7 @@ import {
   parseReaderText,
   type ReaderBlock,
   readerBlocksText,
+  readerImageBlock,
 } from "./content.ts";
 
 export type ReaderSourceProfile =
@@ -48,7 +49,17 @@ export function readerSourceProfile(item: Item): ReaderSourceProfile {
 }
 
 function looksLikeMarkdown(value: string): boolean {
-  return /^(?: {0,3}#{1,3}\s| {0,3}(?:[-+*]|\d+\.)\s| {0,3}>\s?|```)/mu.test(value);
+  if (/^```/mu.test(value)) return true;
+  const markers = value
+    .split(/\r?\n/u)
+    .map((line) => {
+      if (/^ {0,3}#{1,3}\s/u.test(line)) return "heading";
+      if (/^ {0,3}(?:[-+*]|\d+[.)])\s/u.test(line)) return "list";
+      if (/^ {0,3}>\s?/u.test(line)) return "quote";
+      return null;
+    })
+    .filter((marker) => marker !== null);
+  return markers.length >= 2;
 }
 
 function normalizedMetadataText(value: string | null | undefined): string | null {
@@ -82,11 +93,62 @@ function textBlocks(
   value: string,
   baseUrl?: string | null,
 ): ReaderBlock[] {
-  if (profile === "github" || (profile === "feed" && looksLikeMarkdown(value))) {
+  if (
+    profile === "github" ||
+    (profile !== "social" && profile !== "email" && looksLikeMarkdown(value))
+  ) {
     return parseReaderMarkdown(value, baseUrl);
   }
   if (profile === "email") return parseReaderMessageText(value);
   return parseReaderText(value);
+}
+
+function metadataImageBlocks(item: Item, existing: ReaderBlock[]): ReaderBlock[] {
+  const metadata = objectValue(item.metadata);
+  if (!Array.isArray(metadata?.media)) return [];
+  const seen = new Set(existing.flatMap((block) => (block.src ? [block.src] : [])));
+  return metadata.media.flatMap((value): ReaderBlock[] => {
+    const media = objectValue(value);
+    if (!media) return [];
+    const type = typeof media.type === "string" ? media.type : null;
+    const source =
+      (type === "photo" || type === "image") && typeof media.url === "string"
+        ? media.url
+        : typeof media.previewUrl === "string"
+          ? media.previewUrl
+          : null;
+    const alt =
+      typeof media.alt === "string"
+        ? media.alt
+        : item.author
+          ? `${item.author} 的媒體`
+          : "文章圖片";
+    const block = readerImageBlock(
+      source,
+      alt,
+      item.url,
+      typeof media.width === "number" ? media.width : null,
+      typeof media.height === "number" ? media.height : null,
+    );
+    if (!block?.src || seen.has(block.src)) return [];
+    seen.add(block.src);
+    return [block];
+  });
+}
+
+function isXHtmlChrome(item: Item, profile: ReaderSourceProfile): boolean {
+  if (profile !== "html" || !item.url) return false;
+  try {
+    const host = new URL(item.url).hostname.toLowerCase();
+    return (
+      host === "x.com" ||
+      host === "www.x.com" ||
+      host === "twitter.com" ||
+      host === "www.twitter.com"
+    );
+  } catch {
+    return false;
+  }
 }
 
 function displayTitle(item: Item, profile: ReaderSourceProfile): string | null {
@@ -112,13 +174,18 @@ export function presentReaderContent(input: {
   contentText: string | null;
 }): ReaderContentPresentation {
   const profile = readerSourceProfile(input.item);
-  let blocks = input.contentHtml ? parseReaderHtml(input.contentHtml, input.item.url) : [];
-  if (blocks.length === 0 && input.contentText?.trim()) {
+  const blockedTransportChrome = isXHtmlChrome(input.item, profile);
+  let blocks =
+    !blockedTransportChrome && input.contentHtml
+      ? parseReaderHtml(input.contentHtml, input.item.url)
+      : [];
+  if (!blockedTransportChrome && blocks.length === 0 && input.contentText?.trim()) {
     blocks = textBlocks(profile, input.contentText, input.item.url);
   }
-  if (blocks.length === 0 && input.item.summary?.trim()) {
+  if (!blockedTransportChrome && blocks.length === 0 && input.item.summary?.trim()) {
     blocks = textBlocks(profile, input.item.summary, input.item.url);
   }
+  blocks.push(...metadataImageBlocks(input.item, blocks));
   blocks = removeDuplicatedLead(blocks, input.item, profile);
   const readableText = readerBlocksText(blocks);
   return {

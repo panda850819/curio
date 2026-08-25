@@ -4,14 +4,14 @@ Curio 使用 Bun-native server-rendered HTML，沒有新增 frontend framework�
 
 ## Visual direction
 
-`PULL / graphite-and-signal`：舊紙色背景、石墨文字、signal orange 與暖黃焦點。品牌 mark 使用開放的 capture aperture 與被拉入的 signal fragment；管理頁維持 cardless sections、清楚的資料列與可收合的 delivery attempts。Reader 延伸成更安靜的 paper-and-ink 閱讀面：依日期分組、細分隔線、約 65ch 正文欄，桌面與手機共用同一組內容階層。文章頁固定以標題為第一層，作者、來源、發布或收集時間為分離的 metadata；正文依 feed、HTML、GitHub Markdown、social、YouTube 與 email profile 正規化到同一個安全 block model。
+`PULL / graphite-and-signal`：舊紙色背景、石墨文字、signal orange 與暖黃焦點。品牌 mark 使用開放的 capture aperture 與被拉入的 signal fragment；管理頁維持 cardless sections、清楚的資料列與可收合的 delivery attempts。Reader 延伸成更安靜的 paper-and-ink 閱讀面：依日期分組、細分隔線、約 65ch 正文欄，桌面與手機共用同一組內容階層。文章頁固定以標題為第一層，作者、來源、發布或收集時間為分離的 metadata；正文依 feed、HTML、GitHub Markdown、social、YouTube 與 email profile 正規化到同一個安全 block model。HTML monitor 的 readable snapshot 優先選擇頁面中最完整的 `<main>`／article region，避免把 header、nav 與 footer chrome 混進正文；圖片沿用 paper-and-ink 方向，不加卡片框，維持原始比例並限制在 65ch 閱讀欄內。
 
 ## Security
 
 - UI session cookie 使用 `HttpOnly; Secure; SameSite=Lax`。
 - 所有 mutation 使用 server-side session CSRF token。
 - Bot token、webhook secret、X credentials 不會傳入 view model。
-- 外部標題、URL、summary、error 都經 HTML escaping。Reader 不直接 render stored `contentHtml`，而是先用 source-aware presentation layer 轉成 heading、paragraph、list item、blockquote、code 與 safe HTTP(S) link 等 typed blocks；GitHub Markdown 走 bounded parser，unsupported syntax 保持 escaped text。Script、style、iframe、form、embed、event handlers、unsafe URL schemes 與未知 wrapper 都不會進入輸出。
+- 外部標題、URL、summary、error 都經 HTML escaping。Reader 不直接 render stored `contentHtml`，而是先用 source-aware presentation layer 轉成 heading、paragraph、list item、blockquote、code、image 與 safe HTTP(S) link 等 typed blocks；GitHub 與有多個結構訊號的 Markdown 走 bounded parser，單一 incidental bullet 不會觸發格式猜測，unsupported syntax 保持 escaped text。Script、style、iframe、form、embed、event handlers、unsafe URL schemes 與未知 wrapper 都不會進入輸出。圖片只接受無帳密的 HTTPS URL，拒絕 localhost／local suffix 與 private literal IP，不採用 stored `srcset` 或 event attributes，明示的 1–2px tracking image 會被移除；輸出固定使用 lazy loading、async decoding 與 no-referrer，CSP 只額外允許 HTTPS image。圖片仍由瀏覽器直接向來源主機請求，來源會看到 Reader client IP；若要隱藏 IP，後續需獨立設計有 SSRF、大小、MIME 與 cache 邊界的 image proxy。
 - Summary-only item 的「取得全文」使用既有 SSRF-safe client，逐次驗證 redirect、限制大小且只接受靜態 HTML。Enrichment 存在獨立 snapshot，不改寫原始 feed item、cursor 或 delivery。
 - Saved quote form 的原文欄位由目前文章 selection 填入且 readonly；server 仍會對 canonical readable text 做 exact 驗證。Quote、note 與 detached 狀態都經 escaping 後才呈現。
 - Remove、route remove、subscription remove 在瀏覽器端要求 confirmation，server 仍會重新驗證 resource。

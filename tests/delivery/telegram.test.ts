@@ -61,6 +61,7 @@ function payload(kind: "item" | "failure" = "item"): DeliveryPayload {
             discoveredAt: 1,
             createdAt: 1,
             updatedAt: 1,
+            readerHiddenAt: null,
             metadata: { categories: ["personal notes", "生活"] },
           }
         : null,

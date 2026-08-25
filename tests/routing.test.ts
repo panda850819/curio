@@ -119,7 +119,7 @@ describe("routing repositories", () => {
         config: { chatId: "@primary" },
       });
 
-      expect(migrate(database, migrationsPath)).toBe(4);
+      expect(migrate(database, migrationsPath)).toBe(5);
       const routes = new RouteRepository(database, sequence("route"), () => 3_000);
       expect(routes.list()).toMatchObject([
         { subscriptionId: subscription.id, enabled: true, config: {} },

@@ -306,6 +306,43 @@ describe("ItemRepository", () => {
     database.close();
   });
 
+  test("filters hidden Reader items before pagination without deleting history", () => {
+    const database = createDatabase();
+    const subscriptions = new SubscriptionRepository(
+      database,
+      sequence("subscription"),
+      () => 1_000,
+    );
+    const items = new ItemRepository(database, sequence("item"));
+    const subscription = subscriptions.create({
+      adapter: "html",
+      sourceKey: "legacy-page",
+      sourceUrl: "https://example.com/legacy",
+    });
+    items.recordPoll({
+      subscriptionId: subscription.id,
+      items: [
+        { externalId: "visible-old", publishedAt: 100 },
+        { externalId: "visible-new", publishedAt: 200 },
+        { externalId: "hidden-newest", publishedAt: 300 },
+      ],
+      cursor: null,
+      polledAt: 400,
+    });
+    database
+      .query<never, [number, string]>("UPDATE items SET reader_hidden_at = ? WHERE id = ?")
+      .run(500, "item-3");
+
+    const page = items.listTimelinePage(2);
+    expect(page.hasMore).toBe(false);
+    expect(page.items.map((item) => item.externalId)).toEqual(["visible-new", "visible-old"]);
+    expect(items.findById("item-3")?.readerHiddenAt).toBe(500);
+    expect(items.listBySubscription(subscription.id).map((item) => item.externalId)).toContain(
+      "hidden-newest",
+    );
+    database.close();
+  });
+
   test("rejects missing external IDs before writing", () => {
     const database = createDatabase();
     const subscriptions = new SubscriptionRepository(
