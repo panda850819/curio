@@ -4,6 +4,7 @@ import { decodeCursor } from "../app/pagination.ts";
 import { DELIVERY_STATUSES } from "../delivery/types.ts";
 import type { DeliveryStatus, Item, NewRoute, Route, Subscription } from "../domain/types.ts";
 import type { SubscriptionCandidate } from "../probe/types.ts";
+import { parseReaderHtml, parseReaderText, renderReaderBlocks } from "../reader/content.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "../security/redaction.ts";
 import { curioFaviconHref, curioMarkSvg } from "./brand.ts";
 
@@ -76,6 +77,17 @@ function safeExternalHref(value: string): string | null {
   }
 }
 
+function safeReaderHref(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.username || url.password) return null;
+    return escapeHtml(url.toString());
+  } catch {
+    return null;
+  }
+}
+
 function truncate(value: string | null | undefined, maximum = DISPLAY_LIMIT): string {
   const text = sanitizeErrorMessage(value ?? "", maximum);
   return text.length <= maximum ? text : `${text.slice(0, maximum - 1)}…`;
@@ -133,6 +145,8 @@ function safePathSegment(value: string): string {
 export function isValidUiPath(pathname: string): boolean {
   return (
     pathname === "/" ||
+    pathname === "/reader" ||
+    pathname.startsWith("/reader/items/") ||
     pathname === "/privacy" ||
     pathname === "/terms" ||
     pathname === "/subscriptions" ||
@@ -376,6 +390,7 @@ function renderShell(
   flash?: Flash,
 ): string {
   const nav = [
+    ["/reader", "閱讀", "reader"],
     ["/", "總覽", "dashboard"],
     ["/subscriptions", "訂閱", "subscriptions"],
     ["/destinations", "目的地", "destinations"],
@@ -421,6 +436,13 @@ for (const form of document.querySelectorAll('form[data-loading]')) {
   form.addEventListener('submit', () => {
     const button = form.querySelector('button[type="submit"]');
     if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); button.dataset.originalLabel = button.textContent || ''; button.textContent = '處理中…'; }
+  });
+}
+for (const link of document.querySelectorAll('.reader-row-link')) {
+  link.addEventListener('click', (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    link.setAttribute('aria-busy', 'true');
+    link.setAttribute('aria-label', '正在開啟文章');
   });
 }
 </script>
@@ -472,7 +494,7 @@ button:disabled { cursor: wait; opacity: 0.6; }
 .skip-link { position: absolute; left: 1rem; top: -4rem; z-index: 5; background: var(--ink); color: var(--paper); padding: 0.55rem 0.8rem; }
 .skip-link:focus { top: 1rem; }
 :focus-visible { outline: 3px solid var(--brass); outline-offset: 3px; }
-.app-shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+.app-shell { min-width: 0; min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
 .topbar { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 1.15rem 0 1rem; display: flex; align-items: center; gap: 1.5rem; border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 0.7rem; color: var(--ink); text-decoration: none; min-width: 14rem; }
 .brand-mark { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; color: var(--ink); flex: none; }
@@ -483,7 +505,7 @@ button:disabled { cursor: wait; opacity: 0.6; }
 .primary-nav a { padding: 0.45rem 0.65rem; color: var(--ink-soft); text-decoration: none; border-bottom: 2px solid transparent; font-size: 0.92rem; }
 .primary-nav a.active { color: var(--ink); border-color: var(--brass); font-weight: 800; }
 .environment-label { margin-left: auto; color: var(--ink-soft); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
-main { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 3rem 0 5rem; }
+main { min-width: 0; width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 3rem 0 5rem; }
 .page-heading { display: flex; justify-content: space-between; gap: 2rem; align-items: end; margin-bottom: 2.3rem; }
 .page-heading h1 { margin: 0.25rem 0 0.6rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", serif; font-size: clamp(2rem, 4vw, 3.6rem); line-height: 1.08; font-weight: 600; letter-spacing: -0.022em; text-wrap: balance; }
 .eyebrow { margin: 0; color: var(--rust); font-size: 0.76rem; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
@@ -591,9 +613,45 @@ fieldset legend { margin-bottom: 0.45rem; font-size: 0.82rem; font-weight: 800; 
 details { border-top: 1px solid var(--line); padding-top: 0.6rem; }
 details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
 .code-note { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; overflow-wrap: anywhere; }
+.reader-heading { max-width: 48rem; margin: 0 auto 2.8rem; }
+.reader-heading h1 { margin: 0.25rem 0 0.5rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; font-size: clamp(2.25rem, 5vw, 3.7rem); line-height: 1.08; font-weight: 600; text-wrap: balance; }
+.reader-heading > p:last-child { margin: 0; color: var(--ink-soft); }
+.reader-day { max-width: 48rem; margin: 0 auto 2.25rem; }
+.reader-day > h2 { margin: 0 0 0.5rem; color: var(--ink-soft); font-size: 0.76rem; font-weight: 700; letter-spacing: 0.06em; }
+.reader-list { border-top: 1px solid var(--line); }
+.reader-row { border-bottom: 1px solid var(--line); }
+.reader-row-link { display: block; padding: 1.15rem 0; color: var(--ink); text-decoration: none; }
+.reader-row-link:active { transform: scale(0.99); }
+.reader-row-link[aria-busy="true"] { cursor: progress; opacity: 0.58; }
+.reader-row-meta { display: flex; justify-content: space-between; gap: 1rem; color: var(--ink-soft); font-size: 0.75rem; }
+.reader-row-meta span, .reader-row-meta time { min-width: 0; overflow-wrap: anywhere; }
+.reader-row h3 { margin: 0.35rem 0 0.25rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; font-size: 1.18rem; line-height: 1.42; font-weight: 600; text-wrap: pretty; }
+.reader-row p { display: -webkit-box; margin: 0; overflow: hidden; color: var(--ink-soft); font-size: 0.88rem; line-height: 1.65; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.reader-more { max-width: 48rem; margin: 0 auto 2.5rem; }
+.reader-back { max-width: 65ch; margin: 0 auto 1.5rem; font-size: 0.86rem; }
+.reader-article { min-width: 0; max-width: 65ch; margin: 0 auto; }
+.reader-article > header { padding-bottom: 1.4rem; border-bottom: 1px solid var(--line); }
+.reader-article > header time, .reader-article > header p { color: var(--ink-soft); font-size: 0.78rem; }
+.reader-article > header h1 { margin: 0.75rem 0 0.7rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.22; font-weight: 600; text-wrap: pretty; overflow-wrap: anywhere; }
+.reader-article > header p { margin: 0; }
+.reader-note { margin: 1.5rem 0 0; padding: 1rem; background: var(--paper-deep); border-radius: var(--radius-sm); }
+.reader-note p { margin: 0.2rem 0 0; color: var(--ink-soft); font-size: 0.86rem; }
+.reader-body { min-width: 0; padding: 2rem 0 2.5rem; font-family: -apple-system, "SF Pro Text", "PingFang TC", "Noto Sans TC", sans-serif; font-size: 1.05rem; line-height: 1.78; overflow-wrap: anywhere; }
+.reader-body h1, .reader-body h2, .reader-body h3 { margin: 2.2rem 0 0.65rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; line-height: 1.4; font-weight: 600; text-wrap: pretty; }
+.reader-body h1 { font-size: 1.45rem; }
+.reader-body h2 { font-size: 1.28rem; }
+.reader-body h3 { font-size: 1.14rem; }
+.reader-body p { margin: 0 0 1.15rem; white-space: normal; }
+.reader-body ul, .reader-body ol { margin: 0 0 1.25rem; padding-inline-start: 1.5rem; }
+.reader-body li + li { margin-top: 0.45rem; }
+.reader-body blockquote { margin: 1.5rem 0; padding: 1rem 1.1rem; color: var(--ink-soft); background: var(--paper-deep); border-radius: var(--radius-sm); }
+.reader-body pre { max-width: 100%; margin: 1.5rem 0; overflow-x: auto; padding: 1rem; color: var(--ink); background: var(--paper-deep); border: 1px solid var(--line); border-radius: var(--radius-sm); font: 0.88rem/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.reader-body :not(pre) > code { padding: 0.08em 0.28em; background: var(--paper-deep); border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+.reader-source-action { padding-top: 1.2rem; border-top: 1px solid var(--line); }
+.reader-empty-copy { color: var(--ink-soft); }
 .footer { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 1.2rem 0 1.8rem; display: flex; justify-content: space-between; gap: 1rem; color: var(--ink-soft); font-size: 0.75rem; border-top: 1px solid var(--line); }
 .footer span:last-child { display: flex; gap: 0.8rem; }
-@media (hover: hover) { .button-link:hover, button:hover { transition: background-color 140ms ease-out, color 140ms ease-out, border-color 140ms ease-out; } }
+@media (hover: hover) { .button-link:hover, button:hover { transition: background-color 140ms ease-out, color 140ms ease-out, border-color 140ms ease-out; } .reader-row-link:hover h3 { color: var(--rust); } }
 @media (max-width: 840px) { .topbar { align-items: start; flex-wrap: wrap; } .primary-nav { order: 3; width: 100%; } .environment-label { margin-left: auto; } .dashboard-grid, .detail-layout { grid-template-columns: 1fr; } }
 @media (max-width: 640px) {
   main { padding-top: 2rem; }
@@ -620,11 +678,16 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
   .source-topic a { min-width: 0; overflow-wrap: anywhere; word-break: break-all; }
   .key-value { grid-template-columns: 1fr; gap: 0.1rem; }
   .key-value dd { margin-bottom: 0.5rem; }
+  .reader-heading { margin-bottom: 2.1rem; }
+  .reader-row-link { padding-block: 1rem; }
+  .reader-row-meta { gap: 0.55rem; }
+  .reader-body { padding-top: 1.6rem; font-size: 1rem; }
+  .reader-source-action .button-link { width: auto; }
   .footer { display: grid; }
 }
 @media (max-width: 430px) {
   .primary-nav { gap: 0; justify-content: space-between; }
-  .primary-nav a { padding-inline: 0.35rem; font-size: 0.8rem; }
+  .primary-nav a { padding-inline: 0.25rem; font-size: 0.74rem; }
   .overview-strip { margin-inline: -0.1rem; }
   .metric { padding-inline: 0.65rem; }
   .metric dd { font-size: 1.9rem; }
@@ -704,6 +767,97 @@ function itemPreview(item: Item, subscriptionTitle?: string | null): string {
     ? `<a href="${href}" target="_blank" rel="noreferrer">${displayText(title, 150)}</a>`
     : displayText(title, 150);
   return `<article class="item-preview"><h3>${titleHtml}</h3><time datetime="${escapeHtml(new Date(item.publishedAt ?? item.discoveredAt).toISOString())}">${formatDate(item.publishedAt ?? item.discoveredAt)}</time><p>${displayText(subscriptionTitle || "來源", 80)} · ${displayText(item.summary || item.contentText || "沒有預覽內容", 220)}</p></article>`;
+}
+
+function readerDayKey(timestamp: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "UTC",
+  }).format(new Date(timestamp));
+}
+
+function readerGroup(timestamp: number, currentTimestamp: number): string {
+  const today = readerDayKey(currentTimestamp);
+  const yesterday = readerDayKey(currentTimestamp - 24 * 60 * 60_000);
+  const key = readerDayKey(timestamp);
+  if (key === today) return "今天";
+  if (key === yesterday) return "昨天";
+  return "更早";
+}
+
+function readerTimelineContent(app: CurioApplication, url: URL, currentTimestamp: number): string {
+  const cursor = decodeCursor(url.searchParams.get("cursor"));
+  const page = app.services.subscriptions.listItemsPage(60, undefined, cursor);
+  const subscriptions = new Map(
+    app.services.subscriptions
+      .list(MAX_LIST_ITEMS)
+      .map((subscription) => [subscription.id, subscription]),
+  );
+  const groups = new Map<string, Item[]>();
+  for (const item of page.items) {
+    const group = readerGroup(item.publishedAt ?? item.discoveredAt, currentTimestamp);
+    const entries = groups.get(group) ?? [];
+    entries.push(item);
+    groups.set(group, entries);
+  }
+  const sections = ["今天", "昨天", "更早"]
+    .flatMap((label) => {
+      const items = groups.get(label) ?? [];
+      if (items.length === 0) return [];
+      const rows = items
+        .map((item) => {
+          const subscription = subscriptions.get(item.subscriptionId);
+          const source = subscription?.title || item.author || "已收藏來源";
+          const title = item.title || item.url || "未命名內容";
+          const preview = item.summary || item.contentText || "這篇內容沒有摘要。";
+          return `<article class="reader-row"><a class="reader-row-link" href="/reader/items/${encodeURIComponent(item.id)}"><span class="reader-row-meta"><span>${displayText(source, 90)}</span><time datetime="${escapeHtml(new Date(item.publishedAt ?? item.discoveredAt).toISOString())}">${formatDate(item.publishedAt ?? item.discoveredAt)}</time></span><h3>${displayText(title, 180)}</h3><p>${displayText(preview, 260)}</p></a></article>`;
+        })
+        .join("");
+      return [
+        `<section class="reader-day" aria-labelledby="reader-${label}"><h2 id="reader-${label}">${label}</h2><div class="reader-list">${rows}</div></section>`,
+      ];
+    })
+    .join("");
+  const older = page.nextCursor
+    ? `<div class="reader-more">${link(`/reader?cursor=${encodeURIComponent(page.nextCursor)}`, "閱讀較早內容", "button-secondary")}</div>`
+    : "";
+  const body = sections
+    ? `${sections}${older}`
+    : emptyState(
+        "閱讀清單還是空的",
+        "新增第一個來源後，收集到的內容會依日期出現在這裡。",
+        link("/subscriptions/new", "新增訂閱"),
+      );
+  return `<header class="reader-heading"><p class="eyebrow">READER／拾起來讀</p><h1>閱讀</h1><p>從最近收集的內容開始，不讓管理狀態打斷閱讀。</p></header><div aria-live="polite">${body}</div>`;
+}
+
+function readerArticleContent(app: CurioApplication, itemId: string): string {
+  const item = app.services.subscriptions.getItem(itemId);
+  const subscription = app.services.subscriptions
+    .list(MAX_LIST_ITEMS)
+    .find((candidate) => candidate.id === item.subscriptionId);
+  const source = subscription?.title || "已移除的來源";
+  const byline = [
+    ...new Set([item.author, source].filter((value): value is string => Boolean(value))),
+  ];
+  const title = item.title || item.url || "未命名內容";
+  let blocks = item.contentHtml ? parseReaderHtml(item.contentHtml, item.url) : [];
+  if (blocks.length === 0 && item.contentText) blocks = parseReaderText(item.contentText);
+  if (blocks.length === 0 && item.summary) blocks = parseReaderText(item.summary);
+  const articleBody = blocks.length
+    ? renderReaderBlocks(blocks)
+    : `<p class="reader-empty-copy">這篇內容沒有可閱讀的正文。</p>`;
+  const originalHref = item.url ? safeReaderHref(item.url) : null;
+  const sourceLink = originalHref
+    ? `<a class="button-link button-secondary" href="${originalHref}" target="_blank" rel="noopener noreferrer">開啟原文</a>`
+    : "";
+  const summaryOnly =
+    !item.contentHtml && !item.contentText
+      ? `<aside class="reader-note"><strong>目前只有摘要</strong><p>來源沒有在 RSS 中提供完整正文，可以先閱讀摘要或開啟原文。</p></aside>`
+      : "";
+  return `<nav class="reader-back" aria-label="閱讀導覽"><a href="/reader">← 返回閱讀</a></nav><article class="reader-article"><header><time datetime="${escapeHtml(new Date(item.publishedAt ?? item.discoveredAt).toISOString())}">${formatDate(item.publishedAt ?? item.discoveredAt)}</time><h1>${displayText(title, 240)}</h1><p>${displayText(byline.join(" · "), 160)}</p></header>${summaryOnly}<div class="reader-body">${articleBody}</div>${sourceLink ? `<footer class="reader-source-action">${sourceLink}</footer>` : ""}</article>`;
 }
 
 function subscriptionsContent(app: CurioApplication, session: UiSession, url: URL): string {
@@ -1148,6 +1302,17 @@ export function createUiHandler(app: CurioApplication, options: UiHandlerOptions
     const segments = url.pathname.split("/").filter(Boolean);
     if (url.pathname === "/")
       return renderShell("Dashboard", "dashboard", dashboardContent(app, session), session, flash);
+    if (url.pathname === "/reader")
+      return renderShell("閱讀", "reader", readerTimelineContent(app, url, now()), session, flash);
+    if (segments[0] === "reader" && segments[1] === "items" && segments.length === 3) {
+      return renderShell(
+        "閱讀文章",
+        "reader",
+        readerArticleContent(app, safePathSegment(segments[2] as string)),
+        session,
+        flash,
+      );
+    }
     if (url.pathname === "/privacy")
       return renderShell("Privacy", "", legalContent("privacy"), session, flash);
     if (url.pathname === "/terms")
@@ -1382,7 +1547,7 @@ export function createUiHandler(app: CurioApplication, options: UiHandlerOptions
         const content = renderShell(
           "Error",
           "",
-          `<section class="panel-error" role="alert"><strong>頁面載入失敗</strong><span>${buttonLabel(appError.kind === "unexpected" ? "目前無法載入這個頁面。" : sanitizeErrorMessage(appError.message))}</span>${link("/", "回到總覽", "button")}</section>`,
+          `<section class="panel-error" role="alert"><strong>頁面載入失敗</strong><span>${buttonLabel(appError.kind === "unexpected" ? "目前無法載入這個頁面。" : sanitizeErrorMessage(appError.message))}</span>${url.pathname.startsWith("/reader/") ? link("/reader", "返回閱讀", "button") : link("/", "回到總覽", "button")}</section>`,
           session.session,
           {
             kind: "error",

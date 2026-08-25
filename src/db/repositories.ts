@@ -483,6 +483,11 @@ export class ItemRepository {
     private readonly generateId: () => string = () => Bun.randomUUIDv7(),
   ) {}
 
+  findById(id: string): Item | null {
+    const row = this.database.query<ItemRow, [string]>("SELECT * FROM items WHERE id = ?").get(id);
+    return row ? mapItem(row) : null;
+  }
+
   listBySubscription(subscriptionId: string, limit = 100): Item[] {
     return this.database
       .query<ItemRow, [string, number]>(

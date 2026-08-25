@@ -30,6 +30,7 @@ function harness(
     database,
     migrationsPath,
     probeClient,
+    now: () => 1_000,
     email: withEmail
       ? { address: "reader@inbox.example.com", webhookSecret: "email-secret" }
       : undefined,
@@ -82,6 +83,164 @@ describe("Curio Web UI", () => {
     const missing = await context.http(new Request("http://curio.test/does-not-exist"));
     expect(missing.status).toBe(404);
     expect(await missing.text()).toContain("找不到這個頁面");
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("renders an empty Reader with a path to add the first source", async () => {
+    const context = harness();
+    const response = await context.http(new Request("http://curio.test/reader"));
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain('aria-current="page" class="active">閱讀</a>');
+    expect(html).toContain("閱讀清單還是空的");
+    expect(html).toContain('href="/subscriptions/new"');
+    expect(html).toContain('href="/privacy"');
+    expect(html).toContain('href="/terms"');
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("renders a safe date-grouped Reader timeline and structured article", async () => {
+    const context = harness({
+      get: async (url) => ({
+        url,
+        status: 200,
+        headers: {
+          get: (name: string) => (name === "content-type" ? "application/rss+xml" : null),
+        },
+        body: new TextEncoder().encode(`
+          <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+            <channel><title>閱讀測試</title><item><guid>reader-one</guid>
+              <title>一篇很長但值得在手機上安靜讀完的文章</title>
+              <link>https://example.com/posts/reader-one</link>
+              <description>兩行摘要會留在閱讀清單，正文則在文章頁呈現。</description>
+              <content:encoded><![CDATA[
+                <article onclick="steal()">
+                  <h2>正文標題</h2>
+                  <p>第一段有 <strong>重點</strong>、<a href="/related?q=one">安全連結</a> 和 <a href="javascript:steal()">危險連結</a>。</p>
+                  <ul><li>清單第一點</li><li>清單第二點</li></ul>
+                  <blockquote><p>值得保留的來源引文。</p></blockquote>
+                  <pre><code>const curio = "reader";</code></pre>
+                  <script>steal()</script><iframe src="https://tracker.example"></iframe>
+                  <form><input name="secret"></form>
+                </article>
+              ]]></content:encoded>
+            </item></channel>
+          </rss>`),
+      }),
+    });
+    const followed = context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "rss",
+        sourceKey: feedUrl,
+        sourceUrl: feedUrl,
+        title: "閱讀測試",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    await context.app.services.subscriptions.poll(followed.subscription.id);
+    const item = context.app.services.subscriptions.listItemsPage(10).items[0];
+    expect(item).toBeDefined();
+
+    const timeline = await context.ui(new Request("http://curio.test/reader"));
+    expect(timeline.status).toBe(200);
+    const timelineHtml = await timeline.text();
+    expect(timelineHtml).toContain("今天");
+    expect(timelineHtml).toContain("閱讀測試");
+    expect(timelineHtml).toContain("一篇很長但值得在手機上安靜讀完的文章");
+    expect(timelineHtml).toContain(`/reader/items/${item?.id}`);
+
+    const article = await context.ui(
+      new Request(`http://curio.test/reader/items/${item?.id ?? ""}`),
+    );
+    expect(article.status).toBe(200);
+    const articleHtml = await article.text();
+    const readerBody = /<div class="reader-body">([\s\S]*?)<\/div>/u.exec(articleHtml)?.[1] ?? "";
+    expect(articleHtml).toContain('href="/reader">← 返回閱讀</a>');
+    expect(articleHtml).toContain("正文標題");
+    expect(readerBody).toContain("<h2>正文標題</h2>");
+    expect(readerBody).toContain("<ul><li>清單第一點</li><li>清單第二點</li></ul>");
+    expect(readerBody).toContain("<blockquote>值得保留的來源引文。</blockquote>");
+    expect(readerBody).toContain("<pre><code>const curio = &quot;reader&quot;;</code></pre>");
+    expect(readerBody).toContain(
+      'href="https://example.com/related?q=one" target="_blank" rel="noopener noreferrer"',
+    );
+    expect(readerBody).not.toContain("onclick");
+    expect(readerBody).not.toContain("javascript:");
+    expect(readerBody).not.toContain("<script");
+    expect(readerBody).not.toContain("<iframe");
+    expect(readerBody).not.toContain("<form");
+    expect(readerBody).not.toContain("<input");
+
+    context.app.services.subscriptions.remove(followed.subscription.id);
+    const retained = await context.ui(
+      new Request(`http://curio.test/reader/items/${item?.id ?? ""}`),
+    );
+    expect(retained.status).toBe(200);
+    expect(await retained.text()).toContain("已移除的來源");
+
+    const missing = await context.ui(new Request("http://curio.test/reader/items/missing"));
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).toContain("返回閱讀");
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("keeps plain-text and summary-only feed items readable", async () => {
+    const atomUrl = "https://example.com/feed.atom";
+    const context = harness({
+      get: async (url) => ({
+        url,
+        status: 200,
+        headers: {
+          get: (name: string) => (name === "content-type" ? "application/atom+xml" : null),
+        },
+        body: new TextEncoder().encode(`
+          <feed xmlns="http://www.w3.org/2005/Atom"><title>Atom Reader</title>
+            <entry><id>summary</id><title>只有摘要</title><updated>1970-01-01T00:00:01Z</updated><link href="https://example.com/summary"/><summary>來源只提供這段摘要。</summary></entry>
+            <entry><id>text</id><title>純文字正文</title><updated>1970-01-01T00:00:00Z</updated><link href="https://example.com/text"/><content type="text">第一段純文字。\n\n第二段純文字。</content></entry>
+          </feed>`),
+      }),
+    });
+    const followed = context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "atom",
+        sourceKey: atomUrl,
+        sourceUrl: atomUrl,
+        title: "Atom Reader",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    await context.app.services.subscriptions.poll(followed.subscription.id);
+    const items = context.app.services.subscriptions.listItemsPage(10).items;
+    const summary = items.find((item) => item.title === "只有摘要");
+    const plain = items.find((item) => item.title === "純文字正文");
+    expect(summary).toBeDefined();
+    expect(plain).toBeDefined();
+
+    const summaryResponse = await context.ui(
+      new Request(`http://curio.test/reader/items/${summary?.id ?? ""}`),
+    );
+    const summaryHtml = await summaryResponse.text();
+    expect(summaryHtml).toContain("目前只有摘要");
+    expect(summaryHtml).toContain("來源只提供這段摘要。");
+    expect(summaryHtml).toContain("開啟原文");
+
+    const plainResponse = await context.ui(
+      new Request(`http://curio.test/reader/items/${plain?.id ?? ""}`),
+    );
+    const plainHtml = await plainResponse.text();
+    expect(plainHtml).toContain("第一段純文字。");
+    expect(plainHtml).toContain("第二段純文字。");
+    expect(plainHtml).not.toContain("目前只有摘要");
 
     context.app.close();
     context.database.close();

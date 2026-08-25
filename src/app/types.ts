@@ -61,6 +61,7 @@ export interface SubscriptionService {
   remove(id: string): { id: string };
   update(id: string, input: SubscriptionUpdate): Subscription;
   listItemsPage(limit?: number, subscriptionId?: string, cursor?: PageCursor): Page<Item>;
+  getItem(id: string): Item;
   poll(id: string): Promise<SourcePollResult>;
 }
 
