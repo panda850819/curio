@@ -155,6 +155,19 @@ export interface Item extends CanonicalItem {
   metadata: JsonValue;
 }
 
+export interface ItemEnrichment {
+  itemId: string;
+  sourceUrl: string;
+  fetchedUrl: string | null;
+  contentText: string | null;
+  contentHtml: string | null;
+  fetchedAt: number | null;
+  lastAttemptedAt: number;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface PollWrite {
   subscriptionId: string;
   items: CanonicalItem[];

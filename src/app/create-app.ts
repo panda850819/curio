@@ -10,6 +10,8 @@ import { DeliveryRepository } from "../delivery/repository.ts";
 import type { TelegramTransport } from "../delivery/telegram.ts";
 import { SafeHttpClient, SystemResolver } from "../probe/index.ts";
 import type { ProbeHttpClient } from "../probe/types.ts";
+import { ItemEnrichmentRepository } from "../reader/repository.ts";
+import { DefaultReaderService } from "../reader/service.ts";
 import { PollCoordinator, PollScheduler, type SourcePoller } from "../scheduler.ts";
 import { EmailSourceAdapter } from "../sources/email/index.ts";
 import { GithubSourceAdapter } from "../sources/github/adapter.ts";
@@ -54,6 +56,7 @@ export interface CurioApplication {
   readonly deliveryRepository: DeliveryRepository;
   readonly destinationRepository: DestinationRepository;
   readonly routeRepository: RouteRepository;
+  readonly itemEnrichmentRepository: ItemEnrichmentRepository;
   readonly telegramBotRepository: TelegramBotRepository;
   readonly telegramSource: TelegramSourceAdapter;
   readonly telegramHtmlSource: TelegramHtmlSourceAdapter;
@@ -82,6 +85,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
   const routes = new RouteRepository(database, undefined, now);
   const subscriptions = new SubscriptionRepository(database, undefined, now, routes);
   const items = new ItemRepository(database);
+  const enrichments = new ItemEnrichmentRepository(database, now);
   const deliveries = new DeliveryRepository(database, undefined, now, destinations, routes);
   const telegramBotRepository = new TelegramBotRepository(database, now);
   const probeClient = options.probeClient ?? new SafeHttpClient(new SystemResolver());
@@ -131,6 +135,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
       probeService,
       items,
     ),
+    reader: new DefaultReaderService(items, enrichments, probeClient),
     destinations: new DefaultDestinationService(
       destinations,
       options.telegram,
@@ -148,6 +153,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
     deliveryRepository: deliveries,
     destinationRepository: destinations,
     routeRepository: routes,
+    itemEnrichmentRepository: enrichments,
     telegramBotRepository,
     telegramSource,
     telegramHtmlSource,

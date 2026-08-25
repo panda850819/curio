@@ -544,15 +544,26 @@ async function handleApiRequest(
     methodNotAllowed();
   }
 
-  if (resource === "items" && id === undefined && segments.length === 3) {
-    if (request.method !== "GET") methodNotAllowed();
-    return successResponse(
-      services.subscriptions.listItemsPage(
-        parseLimit(url),
-        url.searchParams.get("subscriptionId") ?? undefined,
-        parseCursor(url),
-      ),
-    );
+  if (resource === "items") {
+    if (id === undefined && segments.length === 3) {
+      if (request.method !== "GET") methodNotAllowed();
+      return successResponse(
+        services.subscriptions.listItemsPage(
+          parseLimit(url),
+          url.searchParams.get("subscriptionId") ?? undefined,
+          parseCursor(url),
+        ),
+      );
+    }
+    if (id !== undefined && action === "enrich" && segments.length === 5) {
+      if (request.method !== "POST") methodNotAllowed();
+      const body = await readJsonBody(request);
+      rejectUnknownFields(body, ["force"]);
+      return successResponse(
+        await services.reader.enrich(id, { force: optionalBoolean(body, "force") }),
+      );
+    }
+    throw new AppError("not_found", "not_found", "Route not found");
   }
 
   if (resource === "deliveries") {
