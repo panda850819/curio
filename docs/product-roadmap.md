@@ -131,12 +131,13 @@ interface SourceAdapter {
 
 頁面：
 
-1. Dashboard：啟用數、失敗數、待投遞數、最近 items。
-2. Add subscription：URL probe、candidate 選擇、backfill 與 interval。
-3. Subscriptions：搜尋、filter、pause/resume、manual poll、delete。
-4. Subscription detail：health、cursor 摘要、最近 items、poll history。
-5. Destinations & Routes：Telegram 驗證與來源分流。
-6. Deliveries：failed / uncertain 查詢與人工 retry。
+1. Reader：依日期瀏覽 items、閱讀 safe article blocks、summary-only 全文擷取、read/favorite 與 saved quotes。
+2. Dashboard：啟用數、失敗數、待投遞數、最近 items。
+3. Add subscription：URL probe、candidate 選擇、backfill 與 interval。
+4. Subscriptions：搜尋、filter、pause/resume、manual poll、delete。
+5. Subscription detail：health、cursor 摘要、最近 items、poll history。
+6. Destinations & Routes：Telegram 驗證與來源分流。
+7. Deliveries：failed / uncertain 查詢與人工 retry。
 
 第一版採 responsive Web App，可用手機瀏覽器加入主畫面。確認使用頻率與需求後，再評估 PWA push 或原生 App。
 

@@ -195,12 +195,12 @@ CLI、HTTP API 與未來的 App 應共用同一套核心模組與資料庫，不
 6. SQLite 去重與持久化 cursor；
 7. Telegram 投遞、重試與狀態查詢；
 8. Docker 部署與資料備份；
-9. 共用 Email Inbox 與電子報 inbound 收件。
+9. 共用 Email Inbox 與電子報 inbound 收件；
+10. Responsive Web Reader、safe article blocks 與 summary-only 全文擷取；
+11. Read/favorite state、saved quotes 與 manifest-first Agent Reader 操作。
 
 暫緩：
 
-- 完整 Web Reader；
-- 單篇稍後閱讀工作流；
 - AI 摘要與翻譯；
 - 多使用者與權限；
 - private Telegram channel；

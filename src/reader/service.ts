@@ -200,6 +200,29 @@ export class DefaultReaderService {
     };
   }
 
+  getPreview(itemId: string): string {
+    const item = itemById(this.items, itemId);
+    if (item.summary?.trim()) {
+      const source = item.summary.slice(0, 20_000);
+      const preview = /<\/?[a-z][\s\S]*>/iu.test(source)
+        ? readerBlocksText(parseReaderHtml(source, item.url))
+        : source.trim();
+      if (preview) return preview.slice(0, 2_000);
+    }
+    if (item.contentText?.trim()) return item.contentText.trim().slice(0, 2_000);
+    return this.getReadableText(item.id).slice(0, 2_000);
+  }
+
+  getReadableText(itemId: string): string {
+    const item = itemById(this.items, itemId);
+    const enrichment = this.enrichments.findByItemId(item.id);
+    return readableText({
+      item,
+      contentHtml: enrichment?.contentHtml ?? item.contentHtml ?? null,
+      contentText: enrichment?.contentText ?? item.contentText ?? null,
+    });
+  }
+
   getState(itemId: string): ItemReaderState {
     const item = itemById(this.items, itemId);
     return this.readerState.findState(item.id) ?? defaultReaderState(item);

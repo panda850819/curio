@@ -7,12 +7,14 @@ import { DELIVERY_STATUSES } from "./delivery/types.ts";
 import type {
   DeliveryStatus,
   DestinationUpdate,
+  Item,
   JsonValue,
   NewDestination,
   NewRoute,
   SubscriptionUpdate,
 } from "./domain/types.ts";
 import type { SubscriptionCandidate } from "./probe/types.ts";
+import type { ReaderQuote } from "./reader/service.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "./security/redaction.ts";
 import type { EmailWebhookHandler } from "./sources/email/index.ts";
 import { isValidUiPath, type UiHandler } from "./ui/handler.ts";
@@ -361,6 +363,87 @@ function parseDeliveryStatus(url: URL): DeliveryStatus | undefined {
   return raw as DeliveryStatus;
 }
 
+function agentUrl(value: string | null | undefined): string | null {
+  return value ? redactSensitiveUrls(value) : null;
+}
+
+function boundedAgentText(value: string | null | undefined, maximum: number): string | null {
+  if (!value) return null;
+  const safe = redactSensitiveUrls(value);
+  return safe.length <= maximum ? safe : `${safe.slice(0, maximum - 1)}…`;
+}
+
+function agentSource(services: ApplicationServices, item: Item) {
+  let subscription = null;
+  try {
+    subscription = services.subscriptions.get(item.subscriptionId);
+  } catch (error) {
+    if (!(error instanceof AppError) || error.code !== "subscription_not_found") throw error;
+  }
+  return {
+    subscriptionId: item.subscriptionId,
+    title: boundedAgentText(subscription?.title ?? item.author ?? "Removed source", 500),
+    adapter: subscription?.adapter ?? null,
+    url: agentUrl(subscription?.sourceUrl),
+  };
+}
+
+function agentTimelineItem(services: ApplicationServices, item: Item) {
+  return {
+    id: item.id,
+    subscriptionId: item.subscriptionId,
+    externalId: item.externalId,
+    url: agentUrl(item.url),
+    title: boundedAgentText(item.title, 500),
+    summary: boundedAgentText(services.reader.getPreview(item.id), 2_000),
+    author: boundedAgentText(item.author, 300),
+    publishedAt: item.publishedAt,
+    discoveredAt: item.discoveredAt,
+    readerUrl: `/reader/items/${encodeURIComponent(item.id)}`,
+    state: services.reader.getState(item.id),
+    source: agentSource(services, item),
+  };
+}
+
+function agentQuote(services: ApplicationServices, quote: ReaderQuote) {
+  const item = services.subscriptions.getItem(quote.itemId);
+  const safeExactText = redactSensitiveUrls(quote.exactText);
+  return {
+    id: quote.id,
+    itemId: quote.itemId,
+    exactText: boundedAgentText(quote.exactText, 5_000),
+    exactTextRedacted: safeExactText !== quote.exactText,
+    note: boundedAgentText(quote.note, 2_000),
+    detached: quote.detached,
+    createdAt: quote.createdAt,
+    updatedAt: quote.updatedAt,
+    itemTitle: boundedAgentText(item.title, 500),
+    sourceUrl: agentUrl(item.url),
+    readerUrl: `/reader/items/${encodeURIComponent(item.id)}`,
+  };
+}
+
+function agentReaderItem(services: ApplicationServices, itemId: string) {
+  const reader = services.reader.get(itemId);
+  const maximum = 50_000;
+  const safeReadableText = redactSensitiveUrls(reader.readableText);
+  return {
+    ...agentTimelineItem(services, reader.item),
+    readableText: boundedAgentText(reader.readableText, maximum) ?? "",
+    readableTextTruncated: safeReadableText.length > maximum,
+    readableTextRedacted: safeReadableText !== reader.readableText,
+    enrichment: reader.enrichment
+      ? {
+          fetchedUrl: agentUrl(reader.enrichment.fetchedUrl),
+          fetchedAt: reader.enrichment.fetchedAt,
+          lastAttemptedAt: reader.enrichment.lastAttemptedAt,
+          lastError: boundedAgentText(reader.enrichment.lastError, 2_000),
+        }
+      : null,
+    quotes: reader.quotes.map((quote) => agentQuote(services, quote)),
+  };
+}
+
 function methodNotAllowed(): never {
   throw new AppError("validation", "method_not_allowed", "HTTP method is not supported");
 }
@@ -460,9 +543,11 @@ async function handleApiRequest(
     }
     if (action === "items" && segments.length === 5) {
       if (request.method !== "GET") methodNotAllowed();
-      return successResponse(
-        services.subscriptions.listItemsPage(parseLimit(url), id, parseCursor(url)),
-      );
+      const page = services.subscriptions.listItemsPage(parseLimit(url), id, parseCursor(url));
+      return successResponse({
+        ...page,
+        items: page.items.map((item) => agentTimelineItem(services, item)),
+      });
     }
     throw new AppError("not_found", "not_found", "Route not found");
   }
@@ -547,21 +632,27 @@ async function handleApiRequest(
   if (resource === "items") {
     if (id === undefined && segments.length === 3) {
       if (request.method !== "GET") methodNotAllowed();
-      return successResponse(
-        services.subscriptions.listItemsPage(
-          parseLimit(url),
-          url.searchParams.get("subscriptionId") ?? undefined,
-          parseCursor(url),
-        ),
+      const page = services.subscriptions.listItemsPage(
+        parseLimit(url),
+        url.searchParams.get("subscriptionId") ?? undefined,
+        parseCursor(url),
       );
+      return successResponse({
+        ...page,
+        items: page.items.map((item) => agentTimelineItem(services, item)),
+      });
     }
     if (id !== undefined && action === "enrich" && segments.length === 5) {
       if (request.method !== "POST") methodNotAllowed();
       const body = await readJsonBody(request);
       rejectUnknownFields(body, ["force"]);
-      return successResponse(
-        await services.reader.enrich(id, { force: optionalBoolean(body, "force") }),
-      );
+      const result = await services.reader.enrich(id, {
+        force: optionalBoolean(body, "force"),
+      });
+      return successResponse({
+        disposition: result.disposition,
+        item: agentReaderItem(services, id),
+      });
     }
     if (id !== undefined && action === "reader-state" && segments.length === 5) {
       if (request.method === "GET") return successResponse(services.reader.getState(id));
@@ -582,7 +673,11 @@ async function handleApiRequest(
       return successResponse(services.reader.getState(id));
     }
     if (id !== undefined && action === "quotes" && segments.length === 5) {
-      if (request.method === "GET") return successResponse(services.reader.listQuotes(id));
+      if (request.method === "GET") {
+        return successResponse(
+          services.reader.listQuotes(id).map((quote) => agentQuote(services, quote)),
+        );
+      }
       if (request.method !== "POST") methodNotAllowed();
       const body = await readJsonBody(request);
       rejectUnknownFields(body, ["text", "note"]);
@@ -590,10 +685,14 @@ async function handleApiRequest(
         text: requiredString(body, "text"),
         note: optionalString(body, "note"),
       });
-      return successResponse(result, result.disposition === "created" ? 201 : 200);
+      return successResponse(
+        { ...result, quote: agentQuote(services, result.quote) },
+        result.disposition === "created" ? 201 : 200,
+      );
     }
     if (id !== undefined && segments.length === 4) {
-      throw new AppError("not_found", "not_found", "Route not found");
+      if (request.method !== "GET") methodNotAllowed();
+      return successResponse(agentReaderItem(services, id));
     }
     throw new AppError("not_found", "not_found", "Route not found");
   }
@@ -602,7 +701,9 @@ async function handleApiRequest(
     if (id === undefined && segments.length === 3) {
       if (request.method !== "GET") methodNotAllowed();
       return successResponse(
-        services.reader.listQuotes(url.searchParams.get("itemId") ?? undefined),
+        services.reader
+          .listQuotes(url.searchParams.get("itemId") ?? undefined)
+          .map((quote) => agentQuote(services, quote)),
       );
     }
     if (id !== undefined && segments.length === 4) {

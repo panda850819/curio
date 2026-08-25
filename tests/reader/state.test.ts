@@ -24,7 +24,10 @@ function harness() {
     () => "subscription",
     () => 1_000,
   );
-  const items = new ItemRepository(database, () => "item");
+  let itemSequence = 0;
+  const items = new ItemRepository(database, () =>
+    ++itemSequence === 1 ? "item" : `item-${itemSequence}`,
+  );
   const enrichments = new ItemEnrichmentRepository(database, () => 2_000);
   let quoteSequence = 0;
   const states = new ReaderStateRepository(
@@ -118,6 +121,28 @@ describe("Reader state and saved quotes", () => {
     ).toThrow("摘錄文字不存在於目前的文章正文");
     expect(() => context.service.saveQuote("item", { text: "   " })).toThrow(
       "摘錄文字必須介於 1 到 5000 個字元",
+    );
+    expect(() => context.service.saveQuote("item", { text: "Exact  quoted passage." })).toThrow(
+      "摘錄文字不存在於目前的文章正文",
+    );
+    expect(() => context.service.saveQuote("item", { text: "x".repeat(5_001) })).toThrow(
+      "摘錄文字必須介於 1 到 5000 個字元",
+    );
+
+    context.items.recordEvent({
+      subscriptionId: "subscription",
+      item: {
+        externalId: "second-article",
+        url: "https://example.com/second",
+        title: "Second article",
+        contentText: "This other item has unrelated text.",
+      },
+      cursor: {},
+      eventAt: 2_000,
+      notifyOnInsert: false,
+    });
+    expect(() => context.service.saveQuote("item-2", { text: "Exact quoted passage." })).toThrow(
+      "摘錄文字不存在於目前的文章正文",
     );
 
     context.database.close();

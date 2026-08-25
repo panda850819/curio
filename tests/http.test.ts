@@ -9,7 +9,7 @@ import type { ProbeHttpClient } from "../src/probe/types.ts";
 import { createEmailWebhookHandler } from "../src/sources/email/webhook.ts";
 
 const migrationsPath = resolve(import.meta.dir, "../migrations");
-const feedBody = `<rss version="2.0"><channel><title>Example</title><item><guid>item-1</guid><title>Example item</title><link>https://example.com/item-1</link><description>New item</description></item></channel></rss>`;
+const feedBody = `<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Example</title><item><guid>item-1</guid><title>Example item</title><link>https://example.com/item-1?token=secret</link><description>New item</description><content:encoded><![CDATA[<p>New item</p><script>unsafe()</script>]]></content:encoded></item></channel></rss>`;
 
 function jsonRequest(url: string, method: string, body: unknown): Request {
   return new Request(url, {
@@ -105,10 +105,18 @@ describe("HTTP handler", () => {
     expect(body.data.operations.map((operation) => operation.id)).toContain("probes.create");
     expect(body.data.operations.map((operation) => operation.id)).toContain("subscriptions.ensure");
     expect(body.data.operations.map((operation) => operation.id)).toContain("routes.remove");
+    expect(body.data.operations.map((operation) => operation.id)).toContain("items.get");
+    expect(body.data.operations.map((operation) => operation.id)).toContain("items.enrich");
+    expect(body.data.operations.map((operation) => operation.id)).toContain("quotes.create");
+    expect(body.data.operations.map((operation) => operation.id)).toContain("quotes.remove");
     expect(body.data.operations.find((operation) => operation.id === "probes.create")?.path).toBe(
       "/api/v1/probes",
     );
     expect(body.data.safety.confirmationRequiredFor).toContain("subscriptions.remove");
+    expect(body.data.safety.confirmationRequiredFor).toContain("items.enrich");
+    expect(body.data.safety.confirmationRequiredFor).toContain("items.mark_read");
+    expect(body.data.safety.confirmationRequiredFor).toContain("quotes.create");
+    expect(body.data.safety.confirmationRequiredFor).toContain("quotes.remove");
     expect(body.data.safety.secretsNeverReturned).toContain("TELEGRAM_BOT_TOKEN");
     expect(body.data.safety.secretsNeverReturned).toContain("GITHUB_TOKEN");
     expect(JSON.stringify(body)).not.toContain("secret-bot-token");
@@ -245,6 +253,43 @@ describe("HTTP handler", () => {
     expect(context.app.deliveryRepository.list()[0]?.destinationId).toBe(destinationId);
 
     const itemId = context.app.services.subscriptions.listItemsPage(10).items[0]?.id ?? "";
+    const subscriptionTimeline = await context.request(
+      new Request(`http://curio.test/api/v1/subscriptions/${subscriptionId}/items`),
+    );
+    const subscriptionTimelineText = await subscriptionTimeline.text();
+    expect(subscriptionTimelineText).not.toContain("contentHtml");
+    expect(subscriptionTimelineText).not.toContain("unsafe()");
+    expect(subscriptionTimelineText).not.toContain("token=secret");
+
+    const safeTimeline = await context.request(new Request("http://curio.test/api/v1/items"));
+    const safeTimelineText = await safeTimeline.text();
+    expect(safeTimelineText).toContain("credentials-redacted");
+    expect(safeTimelineText).not.toContain("token=secret");
+    expect(safeTimelineText).not.toContain("contentHtml");
+    expect(safeTimelineText).not.toContain("unsafe()");
+    const safeItem = await context.request(new Request(`http://curio.test/api/v1/items/${itemId}`));
+    expect(safeItem.status).toBe(200);
+    const safeItemBody = (await safeItem.json()) as {
+      data: {
+        id: string;
+        readableText: string;
+        readableTextTruncated: boolean;
+        readableTextRedacted: boolean;
+        readerUrl: string;
+        state: { isRead: boolean; isFavorite: boolean };
+      };
+    };
+    expect(safeItemBody.data).toMatchObject({
+      id: itemId,
+      readableText: "New item",
+      readableTextTruncated: false,
+      readableTextRedacted: false,
+      readerUrl: `/reader/items/${itemId}`,
+      state: { isRead: false, isFavorite: false },
+    });
+    expect(JSON.stringify(safeItemBody)).not.toContain("contentHtml");
+    expect(JSON.stringify(safeItemBody)).not.toContain("unsafe()");
+
     const enrichment = await context.request(
       jsonRequest(`http://curio.test/api/v1/items/${itemId}/enrich`, "POST", {}),
     );
@@ -310,9 +355,18 @@ describe("HTTP handler", () => {
     const quotes = await context.request(
       new Request(`http://curio.test/api/v1/quotes?itemId=${encodeURIComponent(itemId)}`),
     );
-    expect(await quotes.json()).toMatchObject({
-      data: [{ id: quoteBody.data.quote.id, detached: false }],
+    const quotesText = await quotes.text();
+    expect(JSON.parse(quotesText)).toMatchObject({
+      data: [
+        {
+          id: quoteBody.data.quote.id,
+          detached: false,
+          sourceUrl: "https://example.com/item-1?credentials-redacted",
+          readerUrl: `/reader/items/${itemId}`,
+        },
+      ],
     });
+    expect(quotesText).not.toContain("token=secret");
     const removedQuote = await context.request(
       new Request(`http://curio.test/api/v1/quotes/${quoteBody.data.quote.id}`, {
         method: "DELETE",
@@ -320,6 +374,33 @@ describe("HTTP handler", () => {
     );
     expect(removedQuote.status).toBe(200);
     expect(await removedQuote.json()).toEqual({ data: { id: quoteBody.data.quote.id } });
+
+    context.database
+      .query<never, [string, string]>("UPDATE items SET content_html = ? WHERE id = ?")
+      .run("<p>Read https://name:password@example.com/private?token=secret safely.</p>", itemId);
+    const credentialTextItem = await context.request(
+      new Request(`http://curio.test/api/v1/items/${itemId}`),
+    );
+    const credentialText = await credentialTextItem.text();
+    expect(JSON.parse(credentialText)).toMatchObject({
+      data: { readableTextRedacted: true },
+    });
+    expect(credentialText).toContain("credentials-redacted");
+    expect(credentialText).not.toContain("name:password");
+    expect(credentialText).not.toContain("token=secret");
+
+    context.database
+      .query<never, [string, string]>("UPDATE items SET content_html = ? WHERE id = ?")
+      .run(`<p>${"x".repeat(50_100)}</p>`, itemId);
+    const boundedItem = await context.request(
+      new Request(`http://curio.test/api/v1/items/${itemId}`),
+    );
+    const boundedBody = (await boundedItem.json()) as {
+      data: { readableText: string; readableTextTruncated: boolean };
+    };
+    expect(boundedBody.data.readableText).toHaveLength(50_000);
+    expect(boundedBody.data.readableTextTruncated).toBe(true);
+    expect(JSON.stringify(boundedBody)).not.toContain("contentHtml");
 
     context.app.close();
     context.database.close();
