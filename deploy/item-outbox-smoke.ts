@@ -1,5 +1,6 @@
 import { openDatabase } from "../app/src/db/database.ts";
 import { ItemRepository, SubscriptionRepository } from "../app/src/db/repositories.ts";
+import { DestinationRepository, RouteRepository } from "../app/src/db/routing-repositories.ts";
 
 const databasePath = process.env.DATABASE_PATH || "/data/curio.db";
 const database = openDatabase(databasePath);
@@ -9,11 +10,17 @@ try {
   const smoke = database.transaction(() => {
     const subscriptions = new SubscriptionRepository(database);
     const items = new ItemRepository(database);
+    const destination = new DestinationRepository(database).list().find((entry) => entry.enabled);
+    if (!destination) throw new Error("Expected an enabled destination for outbox smoke");
     const subscription = subscriptions.create({
       adapter: "rss",
       sourceKey: marker,
       sourceUrl: `https://example.com/${marker}.xml`,
       nextPollAt: null,
+    });
+    new RouteRepository(database).create({
+      subscriptionId: subscription.id,
+      destinationId: destination.id,
     });
     items.recordPoll({
       subscriptionId: subscription.id,
