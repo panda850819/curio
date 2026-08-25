@@ -32,12 +32,25 @@ describe("normalizeHtmlDocument", () => {
       "https://example.com/page",
       "section > .content",
     );
-    expect(result.text).toBe("First second");
+    expect(result.text).toBe("First\nsecond");
     expect(result.readableHtml).toContain("<p>First<br>second</p>");
     expect(() =>
       normalizeHtmlDocument("<main>text</main>", "https://example.com", ".missing"),
     ).toThrow(HtmlSelectorError);
     expect(extractPageTitle("<title>  A title </title>")).toBe("A title");
+  });
+
+  test("chooses the strongest article region and keeps structured text", () => {
+    const result = normalizeHtmlDocument(
+      `<html><head><title>Page</title></head><body><nav>Chrome</nav><main aria-label="loading"><article>Loading card</article></main><main><article><h2>Actual title</h2><p>First <strong>paragraph</strong></p><ul><li>One</li><li>Two</li></ul><img data-src="/cover.jpg" alt="Cover"></article></main><footer>Legal</footer></body></html>`,
+      "https://example.com/page",
+    );
+    expect(result.text).toBe("Page\n\nActual title\n\nFirst paragraph\n\nOne\n\nTwo");
+    expect(result.readableHtml).toContain("<h2>Actual title</h2>");
+    expect(result.readableHtml).toContain('src="https://example.com/cover.jpg"');
+    expect(result.readableHtml).not.toContain("Chrome");
+    expect(result.canonical).toContain("Chrome");
+    expect(result.canonical).not.toContain("cover.jpg");
   });
 
   test("keeps readable block and code whitespace separate from hash canonicalization", () => {

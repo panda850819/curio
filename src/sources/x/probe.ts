@@ -9,7 +9,9 @@ export function xCandidate(url: string): SubscriptionCandidate | null {
   } catch {
     return null;
   }
-  if (parsed.search || parsed.hash || parsed.username || parsed.password) return null;
+  if (parsed.hash || parsed.username || parsed.password) return null;
+  if ([...parsed.searchParams.keys()].some((key) => key !== "s" && key !== "t")) return null;
+  parsed.search = "";
   const match = X_PROFILE.exec(parsed.toString());
   if (!match?.[1]) return null;
   const handle = match[1].replace(/^@/, "");

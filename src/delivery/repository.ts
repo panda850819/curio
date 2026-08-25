@@ -65,6 +65,7 @@ interface ItemRow {
   discovered_at: number;
   created_at: number;
   updated_at: number;
+  reader_hidden_at: number | null;
   metadata_json: string;
 }
 interface FailureRow {
@@ -394,6 +395,7 @@ export class DeliveryRepository {
             discoveredAt: item.discovered_at,
             createdAt: item.created_at,
             updatedAt: item.updated_at,
+            readerHiddenAt: item.reader_hidden_at,
             metadata: JSON.parse(item.metadata_json),
           } satisfies Item)
         : null,

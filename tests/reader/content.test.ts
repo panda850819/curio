@@ -77,6 +77,40 @@ describe("Reader content", () => {
     expect(rendered).not.toContain("SVG payload");
   });
 
+  test("renders only safe responsive images from HTML and standalone Markdown", () => {
+    const htmlBlocks = parseReaderHtml(
+      `<p>Before</p>
+       <img src="/cover.jpg" alt="Cover &amp; notes" width="1200" height="800" onerror="steal()" srcset="https://tracker.example/2x 2x">
+       <img src="http://insecure.example/image.jpg" alt="insecure">
+       <img src="javascript:steal()" alt="unsafe">
+       <img src="data:image/png;base64,abc" alt="data">
+       <img src="https://127.0.0.1/private" alt="private">
+       <img src="https://service.local/private" alt="local">
+       <img src="https://tracker.example/pixel.gif" width="1" height="1">`,
+      "https://example.com/article",
+    );
+    const rendered = renderReaderBlocks(htmlBlocks);
+    expect(htmlBlocks.map((block) => block.kind)).toEqual(["paragraph", "image"]);
+    expect(rendered).toContain(
+      '<figure class="reader-image"><img src="https://example.com/cover.jpg" alt="Cover &amp; notes" width="1200" height="800" loading="lazy" decoding="async" referrerpolicy="no-referrer"><figcaption class="reader-image-fallback" data-image-fallback hidden>Cover &amp; notes</figcaption></figure>',
+    );
+    expect(rendered).not.toContain("srcset");
+    expect(rendered).not.toContain("onerror");
+    expect(rendered).not.toContain("insecure.example");
+    expect(rendered).not.toContain("tracker.example");
+    expect(rendered).not.toContain("127.0.0.1");
+    expect(rendered).not.toContain("service.local");
+
+    const markdown = renderReaderBlocks(
+      parseReaderMarkdown("![Diagram](https://images.example/diagram.png)"),
+    );
+    expect(markdown).toContain('src="https://images.example/diagram.png"');
+    expect(markdown).toContain('alt="Diagram"');
+    expect(readerBlocksText(parseReaderMarkdown("![Diagram](https://images.example/a.png)"))).toBe(
+      "",
+    );
+  });
+
   test("decodes common and numeric HTML entities once", () => {
     expect(
       renderReaderBlocks(parseReaderHtml("<p>&lt; &amp; &ldquo;Curio&rdquo; &#x2014;</p>")),

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
     <title>Curio RSS</title>
     <link>https://example.com/</link>
@@ -13,6 +13,10 @@
       <category>curio</category>
       <description>Newest summary</description>
       <content:encoded><![CDATA[<p>Newest content</p>]]></content:encoded>
+      <media:thumbnail url="/images/thumb.jpg" width="640" height="360" />
+      <media:content url="https://cdn.example.com/ambiguous.bin" />
+      <enclosure url="https://cdn.example.com/cover.jpg" type="image/jpeg" length="1234" />
+      <enclosure url="https://cdn.example.com/audio.mp3" type="audio/mpeg" length="5678" />
     </item>
     <item>
       <title>Link identity</title>

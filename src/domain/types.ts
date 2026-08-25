@@ -152,6 +152,7 @@ export interface Item extends CanonicalItem {
   discoveredAt: number;
   createdAt: number;
   updatedAt: number;
+  readerHiddenAt: number | null;
   metadata: JsonValue;
 }
 

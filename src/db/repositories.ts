@@ -63,6 +63,7 @@ interface ItemRow {
   discovered_at: number;
   created_at: number;
   updated_at: number;
+  reader_hidden_at: number | null;
   metadata_json: string;
 }
 
@@ -147,6 +148,7 @@ function mapItem(row: ItemRow): Item {
     discoveredAt: row.discovered_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    readerHiddenAt: row.reader_hidden_at,
     metadata: parseJson(row.metadata_json),
   };
 }
@@ -549,6 +551,7 @@ export class ItemRepository {
             .query<ItemRow, [string, number, number, string, number]>(
               `SELECT * FROM items
                WHERE subscription_id = ?
+                 AND reader_hidden_at IS NULL
                  AND (
                    COALESCE(published_at, discovered_at) < ?
                    OR (
@@ -563,7 +566,7 @@ export class ItemRepository {
         : this.database
             .query<ItemRow, [string, number]>(
               `SELECT * FROM items
-               WHERE subscription_id = ?
+               WHERE subscription_id = ? AND reader_hidden_at IS NULL
                ORDER BY COALESCE(published_at, discovered_at) DESC, id DESC
                LIMIT ?`,
             )
@@ -572,7 +575,8 @@ export class ItemRepository {
         ? this.database
             .query<ItemRow, [number, number, string, number]>(
               `SELECT * FROM items
-               WHERE (
+               WHERE reader_hidden_at IS NULL
+                 AND (
                  COALESCE(published_at, discovered_at) < ?
                  OR (
                    COALESCE(published_at, discovered_at) = ?
@@ -586,6 +590,7 @@ export class ItemRepository {
         : this.database
             .query<ItemRow, [number]>(
               `SELECT * FROM items
+               WHERE reader_hidden_at IS NULL
                ORDER BY COALESCE(published_at, discovered_at) DESC, id DESC
                LIMIT ?`,
             )

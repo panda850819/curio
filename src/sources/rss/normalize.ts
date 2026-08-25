@@ -58,15 +58,82 @@ function timestamp(
   return parsed;
 }
 
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function feedImageMedia(entry: unknown, sourceUrl: string): JsonValue[] {
+  const source = recordValue(entry);
+  if (!source) return [];
+  const media = recordValue(source.media);
+  const candidates: Array<{ value: unknown; thumbnail: boolean }> = [
+    ...(Array.isArray(media?.thumbnails)
+      ? media.thumbnails.map((value) => ({ value, thumbnail: true }))
+      : []),
+    ...(Array.isArray(media?.contents)
+      ? media.contents.map((value) => ({ value, thumbnail: false }))
+      : []),
+    ...(Array.isArray(media?.groups)
+      ? media.groups.flatMap((group) => {
+          const current = recordValue(group);
+          return [
+            ...(Array.isArray(current?.thumbnails)
+              ? current.thumbnails.map((value) => ({ value, thumbnail: true }))
+              : []),
+            ...(Array.isArray(current?.contents)
+              ? current.contents.map((value) => ({ value, thumbnail: false }))
+              : []),
+          ];
+        })
+      : []),
+    ...(Array.isArray(source.enclosures)
+      ? source.enclosures.map((value) => ({ value, thumbnail: false }))
+      : []),
+  ];
+  const seen = new Set<string>();
+  return candidates
+    .flatMap((candidate): JsonValue[] => {
+      const current = recordValue(candidate.value);
+      if (!current) return [];
+      const type = typeof current.type === "string" ? current.type.toLowerCase() : "";
+      const medium = typeof current.medium === "string" ? current.medium.toLowerCase() : "";
+      const rawUrl = typeof current.url === "string" ? current.url : null;
+      const url = canonicalUrl(rawUrl, sourceUrl);
+      if (
+        !url ||
+        seen.has(url) ||
+        (!candidate.thumbnail && !type.startsWith("image/") && medium !== "image")
+      ) {
+        return [];
+      }
+      seen.add(url);
+      const description = recordValue(current.description);
+      return [
+        {
+          type: "image",
+          url,
+          alt: typeof description?.value === "string" ? description.value.slice(0, 500) : null,
+          width: typeof current.width === "number" ? current.width : null,
+          height: typeof current.height === "number" ? current.height : null,
+        },
+      ];
+    })
+    .slice(0, 8);
+}
+
 function metadata(
   format: "rss" | "atom" | "rdf",
   sourceIdentifier: string | null,
   categories: string[],
+  media: JsonValue[],
 ): JsonValue {
   return {
     feedFormat: format,
     sourceIdentifier,
     categories,
+    ...(media.length > 0 ? { media } : {}),
   };
 }
 
@@ -120,7 +187,7 @@ function normalizeRss(
         author,
         publishedAt,
         sourceUpdatedAt: null,
-        metadata: metadata("rss", sourceIdentifier, categories),
+        metadata: metadata("rss", sourceIdentifier, categories, feedImageMedia(entry, sourceUrl)),
       };
       return [{ item, sourceIndex }];
     } catch (error) {
@@ -190,7 +257,7 @@ function normalizeAtom(
         author,
         publishedAt,
         sourceUpdatedAt,
-        metadata: metadata("atom", sourceIdentifier, categories),
+        metadata: metadata("atom", sourceIdentifier, categories, feedImageMedia(entry, sourceUrl)),
       };
       return [{ item, sourceIndex }];
     } catch (error) {
@@ -254,7 +321,7 @@ function normalizeRdf(
         author,
         publishedAt,
         sourceUpdatedAt: null,
-        metadata: metadata("rdf", sourceIdentifier, categories),
+        metadata: metadata("rdf", sourceIdentifier, categories, feedImageMedia(entry, sourceUrl)),
       };
       return [{ item, sourceIndex }];
     } catch (error) {

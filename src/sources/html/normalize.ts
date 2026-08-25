@@ -212,6 +212,21 @@ function serialize(node: HtmlNode, baseUrl: string): string {
   return `<${node.tag}${canonicalAttributes(node, baseUrl)}>${children}</${node.tag}>`;
 }
 
+function readableAttributes(node: HtmlElementNode, baseUrl: string): string {
+  if (node.tag !== "img" || node.rawAttributes.src?.trim()) {
+    return canonicalAttributes(node, baseUrl);
+  }
+  const lazySource =
+    node.rawAttributes["data-src"] ??
+    node.rawAttributes["data-original"] ??
+    node.rawAttributes["data-lazy-src"];
+  if (!lazySource?.trim()) return canonicalAttributes(node, baseUrl);
+  return canonicalAttributes(
+    { ...node, rawAttributes: { ...node.rawAttributes, src: lazySource } },
+    baseUrl,
+  );
+}
+
 function serializeReadable(node: HtmlNode, baseUrl: string, preserveWhitespace = false): string {
   if (node.kind === "text") {
     const value = preserveWhitespace
@@ -225,8 +240,8 @@ function serializeReadable(node: HtmlNode, baseUrl: string, preserveWhitespace =
     .map((child) => serializeReadable(child, baseUrl, preserveChildren))
     .join("");
   if (node.tag === "#root") return children;
-  if (VOID_TAGS.has(node.tag)) return `<${node.tag}${canonicalAttributes(node, baseUrl)}>`;
-  return `<${node.tag}${canonicalAttributes(node, baseUrl)}>${children}</${node.tag}>`;
+  if (VOID_TAGS.has(node.tag)) return `<${node.tag}${readableAttributes(node, baseUrl)}>`;
+  return `<${node.tag}${readableAttributes(node, baseUrl)}>${children}</${node.tag}>`;
 }
 
 export function textContent(node: HtmlNode): string {
@@ -332,6 +347,40 @@ function selectedNodes(root: HtmlElementNode, selector?: string): HtmlElementNod
   return matches;
 }
 
+function readableText(node: HtmlNode): string {
+  if (node.kind === "text") return node.value;
+  if (isDropped(node)) return "";
+  if (node.tag === "br") return "\n";
+  const children = node.children.map(readableText).join("");
+  return BLOCK_TAGS.has(node.tag) ? `\n${children}\n` : children;
+}
+
+function normalizeReadableText(value: string): string {
+  return value
+    .replaceAll("\u00a0", " ")
+    .replace(/[\t\f\v ]+/gu, " ")
+    .replace(/ *\n */gu, "\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+}
+
+function readableNodes(
+  root: HtmlElementNode,
+  selected: HtmlElementNode[],
+  selector?: string,
+): HtmlElementNode[] {
+  if (selector?.trim()) return selected;
+  const substantial = (node: HtmlElementNode) => normalizeReadableText(readableText(node)).length;
+  const main = allElements(root)
+    .filter((node) => node.tag === "main")
+    .sort((left, right) => substantial(right) - substantial(left))[0];
+  if (main && substantial(main) >= 20) return [main];
+  const articles = allElements(root).filter(
+    (node) => node.tag === "article" && substantial(node) >= 40,
+  );
+  return articles.length > 0 ? articles : selected;
+}
+
 function pageTitle(root: HtmlElementNode): string | null {
   const title = allElements(root).find((node) => node.tag === "title");
   if (!title) return null;
@@ -370,9 +419,12 @@ export function normalizeHtmlDocument(
   const canonical = [titleCanonical, ...selected.map((node) => serialize(node, baseUrl))]
     .filter(Boolean)
     .join("\n");
-  const readableHtml = selected.map((node) => serializeReadable(node, baseUrl)).join("\n");
-  const text = normalizedText(
-    [titleNode && !selector ? textContent(titleNode) : "", ...selected.map(textContent)].join(" "),
+  const readable = readableNodes(root, selected, selector);
+  const readableHtml = readable.map((node) => serializeReadable(node, baseUrl)).join("\n");
+  const text = normalizeReadableText(
+    [titleNode && !selector ? textContent(titleNode) : "", ...readable.map(readableText)].join(
+      "\n\n",
+    ),
   );
   if (!canonical || !text) throw new HtmlContentEmptyError();
   if (

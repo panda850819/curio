@@ -18,7 +18,19 @@ describe("normalizeFeed", () => {
       url: "https://example.com/newest",
       contentHtml: "<p>Newest content</p>",
       author: "Panda",
-      metadata: { feedFormat: "rss", categories: ["curio"] },
+      metadata: {
+        feedFormat: "rss",
+        categories: ["curio"],
+        media: [
+          {
+            type: "image",
+            url: "https://example.com/images/thumb.jpg",
+            width: 640,
+            height: 360,
+          },
+          { type: "image", url: "https://cdn.example.com/cover.jpg" },
+        ],
+      },
     });
     expect(result.entries[1]?.item.externalId).toMatch(/^url-sha256:/);
     expect(result.entries[2]?.item).toMatchObject({

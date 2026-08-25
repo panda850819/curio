@@ -23,6 +23,7 @@ function item(metadata: JsonValue, overrides: Partial<Item> = {}): Item {
     discoveredAt: 2_000,
     createdAt: 2_000,
     updatedAt: 2_000,
+    readerHiddenAt: null,
     metadata,
     ...overrides,
   };
@@ -91,6 +92,51 @@ describe("Reader source presentation", () => {
     ]);
   });
 
+  test("uses bounded Markdown for strong generic structure but not one incidental bullet", () => {
+    const markdownSource = "## Section\n\n- one\n- two\n\n![Map](https://images.example/map.png)";
+    const markdown = presentReaderContent({
+      item: item({}, { contentText: markdownSource }),
+      contentHtml: null,
+      contentText: markdownSource,
+    });
+    const proseSource = "A normal introduction\n- one incidental line\ncontinuation";
+    const prose = presentReaderContent({
+      item: item({}, { contentText: proseSource }),
+      contentHtml: null,
+      contentText: proseSource,
+    });
+
+    expect(markdown.blocks.map((block) => block.kind)).toEqual([
+      "heading-2",
+      "list-item",
+      "list-item",
+      "image",
+    ]);
+    expect(prose.blocks).toEqual([
+      {
+        kind: "paragraph",
+        html: "A normal introduction<br>- one incidental line<br>continuation",
+        text: proseSource,
+      },
+    ]);
+  });
+
+  test("never renders captured X login or profile chrome as article content", () => {
+    const chrome = "Log in or sign up for X\n\nRui\n4,592 posts\nFollowing\nFollowers";
+    const presentation = presentReaderContent({
+      item: item(
+        { contentHash: "legacy-x-html" },
+        { url: "https://x.com/yeruizhang?s=11", contentText: chrome },
+      ),
+      contentHtml: null,
+      contentText: chrome,
+    });
+
+    expect(presentation.profile).toBe("html");
+    expect(presentation.blocks).toEqual([]);
+    expect(presentation.readableText).toBe("");
+  });
+
   test("renders GitHub Markdown into escaped typed blocks", () => {
     const source = `# Stored title\n\n第一段有 **重點** 與 [安全連結](https://example.com/release)。\n\n- 第一點\n- 第二點\n\n> 引用內容\n\n\`\`\`ts\nconst answer = 42 < 50;\n\`\`\`\n\n<script>unsafe()</script> [危險連結](javascript:unsafe())`;
     const presentation = presentReaderContent({
@@ -139,6 +185,34 @@ describe("Reader source presentation", () => {
       { kind: "paragraph", html: "第一行<br>第二行", text: "第一行\n第二行" },
     ]);
     expect(presentation.readableText).toBe("第一行\n第二行");
+  });
+
+  test("adds safe X media without changing canonical quote text", () => {
+    const presentation = presentReaderContent({
+      item: item(
+        {
+          platform: "x",
+          media: [
+            {
+              type: "photo",
+              url: "https://pbs.twimg.com/media/example.jpg",
+              width: 1200,
+              height: 800,
+            },
+            { type: "video", previewUrl: "https://pbs.twimg.com/media/preview.jpg" },
+            { type: "photo", url: "http://insecure.example/image.jpg" },
+          ],
+        },
+        { title: "Post", contentText: "Post", author: "Rui (@YeRuiZhang)" },
+      ),
+      contentHtml: null,
+      contentText: "Post",
+    });
+
+    expect(presentation.blocks.map((block) => block.kind)).toEqual(["paragraph", "image", "image"]);
+    expect(renderReaderBlocks(presentation.blocks)).toContain("pbs.twimg.com/media/example.jpg");
+    expect(renderReaderBlocks(presentation.blocks)).not.toContain("insecure.example");
+    expect(presentation.readableText).toBe("Post");
   });
 
   test("does not turn a Telegram owner name into an article heading", () => {
