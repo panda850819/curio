@@ -1,6 +1,6 @@
 # Curio deployment on personal-vps
 
-This runbook deploys application revision `5bf99fef7f907d6d041814d0055cbba215441a60` as image `curio/server:5bf99fe`. It publishes no host port and uses only `personal-infra_private`.
+This runbook deploys application revision `216598f1b8e8ac49c01c963d0be892bad7c13769` as image `curio/server:216598f`. It publishes no host port and uses only `personal-infra_private`.
 
 ## 1. Create the secret file
 
@@ -42,7 +42,7 @@ sudo /path/to/deploy/install.sh
 1. checks the private Docker network and secret-file mode;
 2. creates a pre-deploy SQLite backup when a database already exists;
 3. clones/fetches and checks out the exact accepted revision;
-4. builds and labels immutable image `curio/server:5bf99fe`;
+4. builds and labels immutable image `curio/server:216598f`;
 5. installs production Compose and operations scripts;
 6. validates Compose without printing rendered secrets;
 7. starts the service with `--no-build`.
@@ -93,7 +93,7 @@ sudo /opt/curio/operations/backup.sh daily
 sudo /opt/curio/operations/restore-rehearsal.sh
 ```
 
-Backups use SQLite `.backup`, mode `0600`, and must return `ok` from `PRAGMA integrity_check`. Restore rehearsal writes only under `/opt/curio/restore-test`, reruns migrations, and requires exactly seven migration records.
+Backups use SQLite `.backup`, mode `0600`, and must return `ok` from `PRAGMA integrity_check`. Restore rehearsal writes only under `/opt/curio/restore-test`, rejects an image whose revision label differs from the accepted release, reruns migrations, and requires the exact release migration set through `009_reader_state_quotes.sql`.
 
 ## 5. Operations
 
