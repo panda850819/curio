@@ -218,6 +218,30 @@ Enrichment 使用與 probe 相同的 SSRF-safe HTTP client，逐次驗證 DNS �
 
 失敗會保存 item-local、已清理的 `lastError`，原摘要仍可閱讀。已有 feed 正文的 item 回 `409 item_content_already_available`；不支援的 content type、空正文、URL credentials、private target、unsafe redirect 與 oversized response 都會被拒絕。
 
+### `GET|PATCH /api/v1/items/:id/reader-state`
+
+`GET` 讀取單一使用者的 read/favorite state。`PATCH` 至少要提供一個欄位：
+
+```json
+{ "isRead": true, "isFavorite": true }
+```
+
+第一次標為已讀時保存 `readAt`；改回未讀時清除。State 存在獨立 `item_reader_state` table，subscription 移除後仍保留。
+
+### `GET|POST /api/v1/items/:id/quotes`
+
+`GET` 列出一篇文章的 saved quotes。`POST` 保存 exact excerpt 與選填筆記：
+
+```json
+{ "text": "原文中真實存在的段落", "note": "為什麼值得留下" }
+```
+
+Server 會在目前 canonical readable text 中做 exact substring 驗證，拒絕重建、改寫或不存在的 quote。Anchor 保存 exact text 與前後 context；相同 anchor 重送回 `disposition: "existing"`，不建立第二筆。
+
+### `GET /api/v1/quotes`、`DELETE /api/v1/quotes/:id`
+
+全域 quotes index 可用 `itemId` 篩選。每筆回傳 `detached`：exact text 已不在目前正文時為 `true`，但 quote 不會被刪除。`DELETE` 只移除指定 quote；item 與 Reader state 保留。
+
 ## Destinations
 
 ### `GET /api/v1/destinations`

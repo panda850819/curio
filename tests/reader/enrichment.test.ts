@@ -8,6 +8,7 @@ import { SafeHttpClient } from "../../src/probe/http-client.ts";
 import type { HttpResponse, ProbeHttpClient } from "../../src/probe/types.ts";
 import { ItemEnrichmentRepository } from "../../src/reader/repository.ts";
 import { DefaultReaderService } from "../../src/reader/service.ts";
+import { ReaderStateRepository } from "../../src/reader/state-repository.ts";
 
 const migrationsPath = resolve(import.meta.dir, "../../migrations");
 
@@ -51,6 +52,7 @@ function harness(client: ProbeHttpClient, item: CanonicalItem) {
   );
   const items = new ItemRepository(database, () => "item");
   const enrichments = new ItemEnrichmentRepository(database, () => 2_000);
+  const readerState = new ReaderStateRepository(database, undefined, () => 2_000);
   subscriptions.create({
     adapter: "rss",
     sourceKey: "https://example.com/feed.xml",
@@ -69,7 +71,7 @@ function harness(client: ProbeHttpClient, item: CanonicalItem) {
     database,
     items,
     enrichments,
-    service: new DefaultReaderService(items, enrichments, client),
+    service: new DefaultReaderService(items, enrichments, client, readerState),
   };
 }
 

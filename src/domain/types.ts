@@ -155,6 +155,26 @@ export interface Item extends CanonicalItem {
   metadata: JsonValue;
 }
 
+export interface ItemReaderState {
+  itemId: string;
+  isRead: boolean;
+  isFavorite: boolean;
+  readAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SavedQuote {
+  id: string;
+  itemId: string;
+  exactText: string;
+  prefixContext: string;
+  suffixContext: string;
+  note: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ItemEnrichment {
   itemId: string;
   sourceUrl: string;

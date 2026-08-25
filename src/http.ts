@@ -563,6 +563,52 @@ async function handleApiRequest(
         await services.reader.enrich(id, { force: optionalBoolean(body, "force") }),
       );
     }
+    if (id !== undefined && action === "reader-state" && segments.length === 5) {
+      if (request.method === "GET") return successResponse(services.reader.getState(id));
+      if (request.method !== "PATCH") methodNotAllowed();
+      const body = await readJsonBody(request);
+      rejectUnknownFields(body, ["isRead", "isFavorite"]);
+      const isRead = optionalBoolean(body, "isRead");
+      const isFavorite = optionalBoolean(body, "isFavorite");
+      if (isRead === undefined && isFavorite === undefined) {
+        throw new AppError(
+          "validation",
+          "invalid_field",
+          "At least one Reader state field is required",
+        );
+      }
+      if (isRead !== undefined) services.reader.markRead(id, isRead);
+      if (isFavorite !== undefined) services.reader.setFavorite(id, isFavorite);
+      return successResponse(services.reader.getState(id));
+    }
+    if (id !== undefined && action === "quotes" && segments.length === 5) {
+      if (request.method === "GET") return successResponse(services.reader.listQuotes(id));
+      if (request.method !== "POST") methodNotAllowed();
+      const body = await readJsonBody(request);
+      rejectUnknownFields(body, ["text", "note"]);
+      const result = services.reader.saveQuote(id, {
+        text: requiredString(body, "text"),
+        note: optionalString(body, "note"),
+      });
+      return successResponse(result, result.disposition === "created" ? 201 : 200);
+    }
+    if (id !== undefined && segments.length === 4) {
+      throw new AppError("not_found", "not_found", "Route not found");
+    }
+    throw new AppError("not_found", "not_found", "Route not found");
+  }
+
+  if (resource === "quotes") {
+    if (id === undefined && segments.length === 3) {
+      if (request.method !== "GET") methodNotAllowed();
+      return successResponse(
+        services.reader.listQuotes(url.searchParams.get("itemId") ?? undefined),
+      );
+    }
+    if (id !== undefined && segments.length === 4) {
+      if (request.method !== "DELETE") methodNotAllowed();
+      return successResponse(services.reader.removeQuote(id));
+    }
     throw new AppError("not_found", "not_found", "Route not found");
   }
 

@@ -12,6 +12,7 @@ import { SafeHttpClient, SystemResolver } from "../probe/index.ts";
 import type { ProbeHttpClient } from "../probe/types.ts";
 import { ItemEnrichmentRepository } from "../reader/repository.ts";
 import { DefaultReaderService } from "../reader/service.ts";
+import { ReaderStateRepository } from "../reader/state-repository.ts";
 import { PollCoordinator, PollScheduler, type SourcePoller } from "../scheduler.ts";
 import { EmailSourceAdapter } from "../sources/email/index.ts";
 import { GithubSourceAdapter } from "../sources/github/adapter.ts";
@@ -57,6 +58,7 @@ export interface CurioApplication {
   readonly destinationRepository: DestinationRepository;
   readonly routeRepository: RouteRepository;
   readonly itemEnrichmentRepository: ItemEnrichmentRepository;
+  readonly readerStateRepository: ReaderStateRepository;
   readonly telegramBotRepository: TelegramBotRepository;
   readonly telegramSource: TelegramSourceAdapter;
   readonly telegramHtmlSource: TelegramHtmlSourceAdapter;
@@ -86,6 +88,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
   const subscriptions = new SubscriptionRepository(database, undefined, now, routes);
   const items = new ItemRepository(database);
   const enrichments = new ItemEnrichmentRepository(database, now);
+  const readerState = new ReaderStateRepository(database, undefined, now);
   const deliveries = new DeliveryRepository(database, undefined, now, destinations, routes);
   const telegramBotRepository = new TelegramBotRepository(database, now);
   const probeClient = options.probeClient ?? new SafeHttpClient(new SystemResolver());
@@ -135,7 +138,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
       probeService,
       items,
     ),
-    reader: new DefaultReaderService(items, enrichments, probeClient),
+    reader: new DefaultReaderService(items, enrichments, probeClient, readerState),
     destinations: new DefaultDestinationService(
       destinations,
       options.telegram,
@@ -154,6 +157,7 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
     destinationRepository: destinations,
     routeRepository: routes,
     itemEnrichmentRepository: enrichments,
+    readerStateRepository: readerState,
     telegramBotRepository,
     telegramSource,
     telegramHtmlSource,
