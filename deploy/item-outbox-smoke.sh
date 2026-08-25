@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT=${CURIO_ROOT:-/opt/curio}
-IMAGE=${CURIO_IMAGE:-curio/server:677e958}
+IMAGE=${CURIO_IMAGE:-curio/server:13064ec}
 cd "$ROOT"
 restart() {
   docker compose --env-file .env -f compose.yaml start curio >/dev/null
