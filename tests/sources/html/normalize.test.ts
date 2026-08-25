@@ -33,10 +33,21 @@ describe("normalizeHtmlDocument", () => {
       "section > .content",
     );
     expect(result.text).toBe("First second");
+    expect(result.readableHtml).toContain("<p>First<br>second</p>");
     expect(() =>
       normalizeHtmlDocument("<main>text</main>", "https://example.com", ".missing"),
     ).toThrow(HtmlSelectorError);
     expect(extractPageTitle("<title>  A title </title>")).toBe("A title");
+  });
+
+  test("keeps readable block and code whitespace separate from hash canonicalization", () => {
+    const result = normalizeHtmlDocument(
+      "<main><p>First <strong>line</strong></p><pre><code>const one = 1;\n  const two = 2;</code></pre></main>",
+      "https://example.com/page",
+      "main",
+    );
+    expect(result.readableHtml).toContain("<p>First <strong>line</strong></p>");
+    expect(result.readableHtml).toContain("const one = 1;\n  const two = 2;");
   });
 
   test("enforces extracted content byte limits and stable source keys", () => {

@@ -4,7 +4,7 @@ import { decodeCursor } from "../app/pagination.ts";
 import { DELIVERY_STATUSES } from "../delivery/types.ts";
 import type { DeliveryStatus, Item, NewRoute, Route, Subscription } from "../domain/types.ts";
 import type { SubscriptionCandidate } from "../probe/types.ts";
-import { parseReaderHtml, parseReaderText, renderReaderBlocks } from "../reader/content.ts";
+import { renderReaderBlocks } from "../reader/content.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "../security/redaction.ts";
 import { curioFaviconHref, curioMarkSvg } from "./brand.ts";
 
@@ -677,17 +677,20 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
 .reader-back { max-width: 65ch; margin: 0 auto 1.5rem; font-size: 0.86rem; }
 .reader-article { min-width: 0; max-width: 65ch; margin: 0 auto; }
 .reader-article > header { padding-bottom: 1.4rem; border-bottom: 1px solid var(--line); }
-.reader-article > header time, .reader-article > header p { color: var(--ink-soft); font-size: 0.78rem; }
-.reader-article > header h1 { margin: 0.75rem 0 0.7rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.22; font-weight: 600; text-wrap: pretty; overflow-wrap: anywhere; }
-.reader-article > header p { margin: 0; }
-.reader-article-controls { justify-content: start; margin-top: 0.75rem; }
+.reader-article > header h1 { margin: 0 0 0.8rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.22; font-weight: 600; text-wrap: pretty; overflow-wrap: anywhere; }
+.reader-article-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.4rem 1rem; color: var(--ink-soft); font-size: 0.79rem; }
+.reader-article-meta span, .reader-article-meta time { min-width: 0; overflow-wrap: anywhere; }
+.reader-meta-label { margin-right: 0.3rem; color: var(--moss-dark); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.05em; }
+.reader-article-controls { justify-content: start; margin-top: 0.8rem; }
 .reader-article-controls a { font-size: 0.76rem; font-weight: 700; }
 .reader-note { margin: 1.5rem 0 0; padding: 1rem; background: var(--paper-deep); border-radius: var(--radius-sm); }
 .reader-note p { margin: 0.2rem 0 0; color: var(--ink-soft); font-size: 0.86rem; }
 .reader-note-error { background: color-mix(in oklch, var(--paper-deep), var(--rust) 7%); }
 .reader-enrich-form { margin-top: 0.85rem; }
 .reader-enrich-form .button { min-height: 2.35rem; padding: 0.4rem 0.7rem; font-size: 0.82rem; }
-.reader-body { min-width: 0; padding: 2rem 0 2.5rem; font-family: -apple-system, "SF Pro Text", "PingFang TC", "Noto Sans TC", sans-serif; font-size: 1.05rem; line-height: 1.78; overflow-wrap: anywhere; }
+.reader-body { min-width: 0; padding: 2rem 0 2.5rem; font-family: -apple-system, "SF Pro Text", "PingFang TC", "Noto Sans TC", sans-serif; font-size: 1.05rem; line-height: 1.7; overflow-wrap: anywhere; }
+.reader-body:lang(zh), .reader-body:lang(ja), .reader-body:lang(ko) { line-height: 1.78; }
+.reader-body:lang(en) { line-height: 1.55; }
 .reader-body h1, .reader-body h2, .reader-body h3 { margin: 2.2rem 0 0.65rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; line-height: 1.4; font-weight: 600; text-wrap: pretty; }
 .reader-body h1 { font-size: 1.45rem; }
 .reader-body h2 { font-size: 1.28rem; }
@@ -891,7 +894,7 @@ function readerTimelineContent(
           const source = subscription?.title || item.author || "已收藏來源";
           const title = item.title || item.url || "未命名內容";
           const preview = item.summary || item.contentText || "這篇內容沒有摘要。";
-          return `<article class="reader-row${state.isRead ? " reader-row-read" : ""}"><div class="reader-row-layout"><a class="reader-row-link" href="/reader/items/${encodeURIComponent(item.id)}"><span class="reader-row-meta"><span><span class="reader-unread-dot" aria-hidden="true"></span>${displayText(source, 90)}${state.isFavorite ? '<span class="reader-favorite-label">已收藏</span>' : ""}</span><time datetime="${escapeHtml(new Date(item.publishedAt ?? item.discoveredAt).toISOString())}">${formatDate(item.publishedAt ?? item.discoveredAt)}</time></span><h3>${displayText(title, 180)}</h3><p>${displayText(preview, 260)}</p></a><div class="reader-row-controls" aria-label="閱讀操作"><form method="post" action="/reader/items/${encodeURIComponent(item.id)}/read" data-loading>${csrfField(session)}<input type="hidden" name="value" value="${state.isRead ? "false" : "true"}"><button class="reader-text-button" type="submit">${state.isRead ? "標為未讀" : "標為已讀"}</button></form><form method="post" action="/reader/items/${encodeURIComponent(item.id)}/favorite" data-loading>${csrfField(session)}<input type="hidden" name="value" value="${state.isFavorite ? "false" : "true"}"><button class="reader-text-button" type="submit">${state.isFavorite ? "取消收藏" : "收藏"}</button></form></div></div></article>`;
+          return `<article class="reader-row${state.isRead ? " reader-row-read" : ""}"><div class="reader-row-layout"><a class="reader-row-link" href="/reader/items/${encodeURIComponent(item.id)}"><span class="reader-row-meta"><span><span class="reader-unread-dot" aria-hidden="true"></span>${displayText(source, 90)}${state.isFavorite ? '<span class="reader-favorite-label">已收藏</span>' : ""}</span><time datetime="${escapeHtml(new Date(item.publishedAt ?? item.discoveredAt).toISOString())}">${item.publishedAt === null ? "收集" : "發布"} ${formatDate(item.publishedAt ?? item.discoveredAt)}</time></span><h3>${displayText(title, 180)}</h3><p>${displayText(preview, 260)}</p></a><div class="reader-row-controls" aria-label="閱讀操作"><form method="post" action="/reader/items/${encodeURIComponent(item.id)}/read" data-loading>${csrfField(session)}<input type="hidden" name="value" value="${state.isRead ? "false" : "true"}"><button class="reader-text-button" type="submit">${state.isRead ? "標為未讀" : "標為已讀"}</button></form><form method="post" action="/reader/items/${encodeURIComponent(item.id)}/favorite" data-loading>${csrfField(session)}<input type="hidden" name="value" value="${state.isFavorite ? "false" : "true"}"><button class="reader-text-button" type="submit">${state.isFavorite ? "取消收藏" : "收藏"}</button></form></div></div></article>`;
         })
         .join("");
       return [
@@ -920,18 +923,23 @@ function readerArticleContent(app: CurioApplication, session: UiSession, itemId:
     .list(MAX_LIST_ITEMS)
     .find((candidate) => candidate.id === item.subscriptionId);
   const source = subscription?.title || "已移除的來源";
-  const byline = [
-    ...new Set([item.author, source].filter((value): value is string => Boolean(value))),
-  ];
-  const title = item.title || item.url || "未命名內容";
-  let blocks = readerItem.contentHtml ? parseReaderHtml(readerItem.contentHtml, item.url) : [];
-  if (blocks.length === 0 && readerItem.contentText) {
-    blocks = parseReaderText(readerItem.contentText);
-  }
-  if (blocks.length === 0 && item.summary) blocks = parseReaderText(item.summary);
-  const articleBody = blocks.length
-    ? renderReaderBlocks(blocks)
+  const title = readerItem.presentation.displayTitle;
+  const titleHtml = title ? `<h1>${displayText(title, 240)}</h1>` : "";
+  const articleBody = readerItem.presentation.blocks.length
+    ? renderReaderBlocks(readerItem.presentation.blocks)
     : `<p class="reader-empty-copy">這篇內容沒有可閱讀的正文。</p>`;
+  const languageAttribute = readerItem.presentation.language
+    ? ` lang="${readerItem.presentation.language}"`
+    : "";
+  const authorMeta = item.author
+    ? `<span><span class="reader-meta-label">作者</span>${displayText(item.author, 120)}</span>`
+    : "";
+  const sourceMeta =
+    source !== item.author
+      ? `<span><span class="reader-meta-label">來源</span>${displayText(source, 120)}</span>`
+      : "";
+  const displayedAt = item.publishedAt ?? item.discoveredAt;
+  const timeMeta = `<time datetime="${escapeHtml(new Date(displayedAt).toISOString())}"><span class="reader-meta-label">${item.publishedAt === null ? "收集" : "發布"}</span>${formatDate(displayedAt)}</time>`;
   const originalHref = item.url ? safeReaderHref(item.url) : null;
   const sourceLink = originalHref
     ? `<a class="button-link button-secondary" href="${originalHref}" target="_blank" rel="noopener noreferrer">開啟原文</a>`
@@ -953,7 +961,7 @@ function readerArticleContent(app: CurioApplication, session: UiSession, itemId:
     ? `<section class="reader-saved-quotes" aria-labelledby="saved-quotes-heading"><div class="reader-section-heading"><h2 id="saved-quotes-heading">這篇文章的摘錄</h2><span>${formatNumber(readerItem.quotes.length)} 則</span></div>${readerItem.quotes.map((quote) => `<article class="reader-saved-quote${quote.detached ? " reader-saved-quote-detached" : ""}"><div class="reader-quote-meta">${quote.detached ? '<span class="status status-uncertain">已脫離目前正文</span>' : ""}<time datetime="${escapeHtml(new Date(quote.createdAt).toISOString())}">${formatDate(quote.createdAt)}</time></div><blockquote class="reader-saved-quote-text">${escapeHtml(quote.exactText)}</blockquote>${quote.note ? `<p class="reader-quote-note">${escapeHtml(quote.note)}</p>` : ""}<form method="post" action="/reader/quotes/${encodeURIComponent(quote.id)}/remove" data-loading onsubmit="return window.confirm('要移除這則摘錄嗎？')">${csrfField(session)}<input type="hidden" name="itemId" value="${escapeHtml(item.id)}"><button class="reader-text-button reader-remove-quote" type="submit">移除摘錄</button></form></article>`).join("")}</section>`
     : "";
   const quoteCapture = `<section class="reader-quote-capture" aria-labelledby="quote-capture-heading"><div class="reader-section-heading"><h2 id="quote-capture-heading">保存摘錄</h2></div><p class="reader-selection-hint" data-selection-hint>選取上方文章中的真實文字後，可以保存摘錄與筆記。</p><form class="reader-quote-form" method="post" action="/reader/items/${encodeURIComponent(item.id)}/quotes" data-quote-form data-loading hidden>${csrfField(session)}<div class="field"><label for="quote-text-${escapeHtml(item.id)}">選取的原文</label><textarea id="quote-text-${escapeHtml(item.id)}" name="text" rows="4" readonly required></textarea></div><div class="field"><label for="quote-note-${escapeHtml(item.id)}">筆記 <span class="field-hint">選填</span></label><textarea id="quote-note-${escapeHtml(item.id)}" name="note" rows="3" maxlength="2000"></textarea></div><button class="button" type="submit">保存摘錄</button></form></section>`;
-  return `<nav class="reader-back" aria-label="閱讀導覽"><a href="/reader">← 返回閱讀</a></nav><article class="reader-article"><header><time datetime="${escapeHtml(new Date(item.publishedAt ?? item.discoveredAt).toISOString())}">${formatDate(item.publishedAt ?? item.discoveredAt)}</time><h1>${displayText(title, 240)}</h1><p>${displayText(byline.join(" · "), 160)}</p>${stateControls}</header>${enrichmentState}<div class="reader-body" data-reader-body>${articleBody}</div>${quoteCapture}${savedQuotes}${sourceLink ? `<footer class="reader-source-action">${sourceLink}</footer>` : ""}</article>`;
+  return `<nav class="reader-back" aria-label="閱讀導覽"><a href="/reader">← 返回閱讀</a></nav><article class="reader-article"><header>${titleHtml}<div class="reader-article-meta">${authorMeta}${sourceMeta}${timeMeta}</div>${stateControls}</header>${enrichmentState}<div class="reader-body" data-reader-body data-source-profile="${readerItem.presentation.profile}"${languageAttribute}>${articleBody}</div>${quoteCapture}${savedQuotes}${sourceLink ? `<footer class="reader-source-action">${sourceLink}</footer>` : ""}</article>`;
 }
 
 function readerQuotesContent(app: CurioApplication, session: UiSession): string {

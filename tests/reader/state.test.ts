@@ -187,6 +187,55 @@ describe("Reader state and saved quotes", () => {
     context.database.close();
   });
 
+  test("keeps browser-visible HTML line breaks in exact quote text", () => {
+    const context = harness();
+    context.items.recordEvent({
+      subscriptionId: "subscription",
+      item: {
+        externalId: "line-break-article",
+        url: "https://example.com/line-breaks",
+        title: "分行文章",
+        contentHtml: "<p>第一行<br>第二行</p>",
+      },
+      cursor: {},
+      eventAt: 2_000,
+      notifyOnInsert: false,
+    });
+
+    expect(context.service.getReadableText("item-2")).toBe("第一行\n第二行");
+    expect(context.service.saveQuote("item-2", { text: "第一行\n第二行" })).toMatchObject({
+      disposition: "created",
+      quote: { detached: false },
+    });
+    expect(context.service.listQuotes("item-2")[0]?.detached).toBe(false);
+
+    context.database.close();
+  });
+
+  test("matches browser selection across adjacent list items", () => {
+    const context = harness();
+    context.items.recordEvent({
+      subscriptionId: "subscription",
+      item: {
+        externalId: "list-article",
+        url: "https://example.com/list",
+        title: "清單文章",
+        contentHtml: "<ul><li>第一點</li><li>第二點</li></ul>",
+      },
+      cursor: {},
+      eventAt: 2_000,
+      notifyOnInsert: false,
+    });
+
+    expect(context.service.getReadableText("item-2")).toBe("第一點\n第二點");
+    expect(context.service.saveQuote("item-2", { text: "第一點\r\n第二點" })).toMatchObject({
+      disposition: "created",
+      quote: { detached: false },
+    });
+
+    context.database.close();
+  });
+
   test("retains item state and quotes after the subscription is removed", () => {
     const context = harness();
     context.service.markRead("item", true);

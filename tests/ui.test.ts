@@ -116,6 +116,8 @@ describe("Curio Web UI", () => {
             <channel><title>閱讀測試</title><item><guid>reader-one</guid>
               <title>一篇很長但值得在手機上安靜讀完的文章</title>
               <link>https://example.com/posts/reader-one</link>
+              <author>測試作者</author>
+              <pubDate>Thu, 01 Jan 1970 00:00:01 GMT</pubDate>
               <description>兩行摘要會留在閱讀清單，正文則在文章頁呈現。</description>
               <content:encoded><![CDATA[
                 <article onclick="steal()">
@@ -153,6 +155,7 @@ describe("Curio Web UI", () => {
     expect(timelineHtml).toContain("今天");
     expect(timelineHtml).toContain("閱讀測試");
     expect(timelineHtml).toContain("一篇很長但值得在手機上安靜讀完的文章");
+    expect(timelineHtml).toContain("發布");
     expect(timelineHtml).toContain(`/reader/items/${item?.id}`);
 
     const article = await context.ui(
@@ -164,6 +167,13 @@ describe("Curio Web UI", () => {
       /<div class="reader-body"[^>]*>([\s\S]*?)<\/div>/u.exec(articleHtml)?.[1] ?? "";
     expect(articleHtml).toContain('href="/reader">← 返回閱讀</a>');
     expect(articleHtml).toContain("正文標題");
+    expect(articleHtml).toContain('data-source-profile="feed"');
+    expect(articleHtml).toContain('class="reader-meta-label">作者</span>測試作者');
+    expect(articleHtml).toContain('class="reader-meta-label">來源</span>閱讀測試');
+    expect(articleHtml).toContain('class="reader-meta-label">發布</span>');
+    expect(articleHtml.indexOf("一篇很長但值得在手機上安靜讀完的文章")).toBeLessThan(
+      articleHtml.indexOf('class="reader-article-meta"'),
+    );
     expect(readerBody).toContain("<h2>正文標題</h2>");
     expect(readerBody).toContain("<ul><li>清單第一點</li><li>清單第二點</li></ul>");
     expect(readerBody).toContain("<blockquote>值得保留的來源引文。</blockquote>");

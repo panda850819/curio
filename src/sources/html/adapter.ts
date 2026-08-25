@@ -106,7 +106,7 @@ function contentHash(value: string): string {
 
 function itemFor(
   subscription: Subscription,
-  normalized: { canonical: string; text: string; title: string | null },
+  normalized: { canonical: string; readableHtml: string; text: string; title: string | null },
   hash: string,
   selector?: string,
 ) {
@@ -118,7 +118,7 @@ function itemFor(
       ? `Page content changed in selector ${selector}`
       : "Monitored page content changed",
     contentText: normalized.text,
-    contentHtml: null,
+    contentHtml: normalized.readableHtml,
     metadata: {
       contentHash: hash,
       ...(selector ? { selector } : {}),
@@ -147,11 +147,18 @@ export class HtmlSourceAdapter {
     try {
       const cursor = readCursor(subscription);
       const configuration = metadata(subscription);
-      const response = await this.client.get(
+      let response = await this.client.get(
         subscription.sourceUrl,
         () => HTML_LIMIT,
         conditionalHeaders(cursor),
       );
+      if (
+        response.status === 304 &&
+        cursor.lastHash &&
+        this.items.hasMissingContentHtml(subscriptionId, `html:${cursor.lastHash}`)
+      ) {
+        response = await this.client.get(subscription.sourceUrl, () => HTML_LIMIT, {});
+      }
       const warnings: HtmlPollWarning[] = [];
       const nextCursor = updateCursor(
         cursor,
@@ -185,6 +192,12 @@ export class HtmlSourceAdapter {
       const hash = contentHash(normalized.canonical);
       nextCursor.lastHash = hash;
       if (cursor.lastHash === hash) {
+        this.items.fillMissingContentHtml(
+          subscriptionId,
+          `html:${hash}`,
+          normalized.readableHtml,
+          polledAt,
+        );
         const result = this.items.recordPoll({
           subscriptionId,
           items: [],

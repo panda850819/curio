@@ -120,13 +120,33 @@ function decodeHtmlEntities(value: string): string {
     });
 }
 
+function quotedHtmlToText(value: string): string {
+  const text = value
+    .replace(/<br\s*\/?\s*>/giu, "\n")
+    .replace(/<\/(p|div|li|h[1-6])\s*>/giu, "\n")
+    .replace(/<[^>]*>/gu, " ")
+    .replace(/[ \t]+/gu, " ")
+    .replace(/ *\n */gu, "\n")
+    .trim();
+  return text
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
 function htmlToText(value: string): string {
   return decodeHtmlEntities(
     value
       .replace(/<!--[\s\S]*?-->/gu, " ")
       .replace(/<(script|style|head|noscript)[^>]*>[\s\S]*?<\/\1>/giu, " ")
+      .replace(
+        /<blockquote[^>]*>([\s\S]*?)<\/blockquote\s*>/giu,
+        (_match, quote: string) => `\n\n${quotedHtmlToText(quote)}\n\n`,
+      )
       .replace(/<br\s*\/?\s*>/giu, "\n")
-      .replace(/<\/(p|div|li|tr|h[1-6])\s*>/giu, "\n")
+      .replace(/<\/(p|div|h[1-6])\s*>/giu, "\n\n")
+      .replace(/<\/(li|tr)\s*>/giu, "\n")
       .replace(/<[^>]*>/gu, " "),
   );
 }

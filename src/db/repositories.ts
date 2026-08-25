@@ -488,6 +488,35 @@ export class ItemRepository {
     return row ? mapItem(row) : null;
   }
 
+  hasMissingContentHtml(subscriptionId: string, externalId: string): boolean {
+    return (
+      this.database
+        .query<{ present: number }, [string, string]>(
+          `SELECT 1 AS present FROM items
+           WHERE subscription_id = ? AND external_id = ?
+             AND (content_html IS NULL OR trim(content_html) = '')`,
+        )
+        .get(subscriptionId, externalId) !== null
+    );
+  }
+
+  fillMissingContentHtml(
+    subscriptionId: string,
+    externalId: string,
+    contentHtml: string,
+    updatedAt: number,
+  ): boolean {
+    if (!contentHtml.trim()) return false;
+    const result = this.database
+      .query<never, [string, number, string, string]>(
+        `UPDATE items SET content_html = ?, updated_at = ?
+         WHERE subscription_id = ? AND external_id = ?
+           AND (content_html IS NULL OR trim(content_html) = '')`,
+      )
+      .run(contentHtml, updatedAt, subscriptionId, externalId);
+    return result.changes === 1;
+  }
+
   listBySubscription(subscriptionId: string, limit = 100): Item[] {
     return this.database
       .query<ItemRow, [string, number]>(

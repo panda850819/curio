@@ -13,6 +13,7 @@ export interface HtmlPollWarning {
 
 export interface NormalizedHtmlDocument {
   canonical: string;
+  readableHtml: string;
   text: string;
   title: string | null;
 }
