@@ -11,6 +11,7 @@ describe("Reader content", () => {
   test("turns supported article HTML into typed blocks", () => {
     const blocks = parseReaderHtml(
       `<article>
+        <script>const fake = "<article></article>";</script>
         <h2>段落標題</h2>
         <p>正文有 <strong>重點</strong> 和 <a href="/notes?q=reader">安全連結</a>。</p>
         <ul><li>第一點</li><li>第二點</li></ul>
@@ -40,6 +41,97 @@ describe("Reader content", () => {
     expect(renderReaderBlocks(blocks)).toContain(
       "<pre><code>const answer = 42 &lt; 50;</code></pre>",
     );
+  });
+
+  test("groups repeated HTML article cards into readable entries", () => {
+    const blocks = parseReaderHtml(
+      `<main>
+        <article><a href="/one"><div><div>08.24</div><div>2026</div></div><div><span>AI 教程</span><h2>第一篇</h2><p>第一篇摘要。</p><div><span>閱讀全文</span><span>→</span></div></div></a></article>
+        <article><a href="/two"><div><div>08.19</div><div>2026</div></div><div><span>AI 工具</span><h2>第二篇</h2><p>第二篇摘要。</p><div><span>閱讀全文</span><span>→</span></div></div></a></article>
+      </main>`,
+      "https://example.com/",
+    );
+
+    expect(blocks.map((block) => block.kind)).toEqual([
+      "separator",
+      "entry-metadata",
+      "heading-2",
+      "paragraph",
+      "entry-action",
+      "separator",
+      "entry-metadata",
+      "heading-2",
+      "paragraph",
+      "entry-action",
+    ]);
+    expect(readerBlocksText(blocks)).toBe(
+      "08.24 · 2026 · AI 教程\n\n第一篇\n\n第一篇摘要。\n\n閱讀全文→\n\n08.19 · 2026 · AI 工具\n\n第二篇\n\n第二篇摘要。\n\n閱讀全文→",
+    );
+    const rendered = renderReaderBlocks(blocks);
+    expect(rendered).toContain('<hr class="reader-entry-divider" aria-hidden="true">');
+    expect(rendered).toContain('<p class="reader-entry-metadata">08.24 · 2026 · AI 教程</p>');
+    expect(rendered).toContain(
+      '<h2><a href="https://example.com/one" target="_blank" rel="noopener noreferrer">第一篇</a></h2>',
+    );
+    expect(rendered).toContain(
+      '<p class="reader-entry-action"><a href="https://example.com/one" target="_blank" rel="noopener noreferrer">閱讀全文→</a></p>',
+    );
+  });
+
+  test("keeps entry links scoped when listing metadata has its own link", () => {
+    const rendered = renderReaderBlocks(
+      parseReaderHtml(
+        `<article><div>08.24</div><div>2026</div><a href="/category">AI</a><h2><a href="/one">第一篇</a></h2><a href="/one">閱讀全文</a></article>
+         <article><div>08.19</div><div>2026</div><span>AI</span><h2><a href="/two">第二篇</a></h2><a href="/two">閱讀全文</a></article>`,
+        "https://example.com/",
+      ),
+    );
+
+    expect(rendered).toContain(
+      '<h2><a href="https://example.com/one" target="_blank" rel="noopener noreferrer">第一篇</a></h2>',
+    );
+    expect(rendered).toContain(
+      '<p class="reader-entry-action"><a href="https://example.com/one" target="_blank" rel="noopener noreferrer">閱讀全文</a></p>',
+    );
+    expect(rendered).toContain(
+      '<a href="https://example.com/category" target="_blank" rel="noopener noreferrer">AI</a>',
+    );
+    expect(rendered).not.toContain('<h2><a href="https://example.com/category"');
+  });
+
+  test("limits listing metadata and separators to article boundaries", () => {
+    const rendered = renderReaderBlocks(
+      parseReaderHtml(
+        `<article><a href="/outer"><h2>前標題</h2><article>巢狀內容</article><h2>後標題</h2></a><p>前言</p><div>08.24</div><div>2026</div><div>分類</div><h2>內文標題</h2></article><article>第二篇</article>`,
+        "https://example.com/",
+      ),
+    );
+
+    expect(rendered.match(/reader-entry-divider/gu)).toHaveLength(2);
+    expect(rendered).toContain(
+      '<h2><a href="https://example.com/outer" target="_blank" rel="noopener noreferrer">後標題</a></h2>',
+    );
+    expect(rendered).not.toContain("reader-entry-metadata");
+    expect(rendered).toContain("<p>08.24</p><p>2026</p><p>分類</p><h2>內文標題</h2>");
+  });
+
+  test("does not treat nested or outside content as listing entries", () => {
+    const single = renderReaderBlocks(
+      parseReaderHtml("<article><h2>A</h2><article>N</article><h2>B</h2></article>"),
+    );
+    expect(single).toBe("<h2>A</h2><p>N</p><h2>B</h2>");
+
+    const repeated = renderReaderBlocks(
+      parseReaderHtml("<p>Read more</p><article>A</article><article>B</article>"),
+    );
+    expect(repeated).toStartWith("<p>Read more</p>");
+    expect(repeated).not.toStartWith('<p class="reader-entry-action">');
+
+    const afterEmpty = renderReaderBlocks(
+      parseReaderHtml(" \n<article></article>\n<p>Read more</p><article>B</article>"),
+    );
+    expect(afterEmpty).toContain("<p>Read more</p>");
+    expect(afterEmpty).not.toContain('<p class="reader-entry-action">Read more</p>');
   });
 
   test("drops executable elements, attributes, embeds, forms, and unsafe links", () => {

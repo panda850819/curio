@@ -8,7 +8,10 @@ export type ReaderBlockKind =
   | "list-item"
   | "quote"
   | "code"
-  | "image";
+  | "image"
+  | "entry-metadata"
+  | "entry-action"
+  | "separator";
 
 export interface ReaderBlock {
   kind: ReaderBlockKind;
@@ -19,6 +22,8 @@ export interface ReaderBlock {
   alt?: string;
   width?: number;
   height?: number;
+  entryHref?: string;
+  inEntry?: boolean;
 }
 
 interface OpenFrame {
@@ -27,6 +32,8 @@ interface OpenFrame {
   html: string;
   text: string;
   ordered?: boolean;
+  entryHref?: string;
+  inEntry?: boolean;
 }
 
 const MAX_READER_SOURCE_CHARACTERS = 1_000_000;
@@ -201,11 +208,23 @@ function addBreak(frame: OpenFrame): void {
 export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBlock[] {
   if (!html.trim()) return [];
 
+  const countableHtml = html
+    .slice(0, MAX_READER_SOURCE_CHARACTERS)
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, "");
+  const articleCount = countableHtml.match(/<article(?:\s|>)/giu)?.length ?? 0;
   const blocks: ReaderBlock[] = [];
   const listStack: boolean[] = [];
   let frame: OpenFrame | null = null;
   let elementId = 0;
   let dangerousDepth = 0;
+  let articleDepth = 0;
+  let activeEntryHref: string | undefined;
+  let inTopLevelArticle = false;
+  let activeEntryCandidate:
+    | { href: string; frame: OpenFrame; htmlStart: number; sawBoundary: boolean }
+    | undefined;
+  const topLevelArticles = new Set<number>();
 
   function flushFrame(): void {
     if (!frame) return;
@@ -215,6 +234,8 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
         html: frame.html,
         text: frame.text.trim(),
         ordered: frame.ordered,
+        entryHref: frame.entryHref,
+        inEntry: frame.inEntry,
       });
     }
     frame = null;
@@ -222,7 +243,14 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
 
   function ensureParagraph(): OpenFrame {
     if (!frame) {
-      frame = { rootId: null, kind: "paragraph", html: "", text: "" };
+      frame = {
+        rootId: null,
+        kind: "paragraph",
+        html: "",
+        text: "",
+        entryHref: activeEntryHref,
+        inEntry: inTopLevelArticle,
+      };
     }
     return frame;
   }
@@ -244,6 +272,26 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
         }
         if (dangerousDepth > 0) return;
 
+        if (tag === "article" && articleCount > 1) {
+          const topLevel = articleDepth === 0;
+          if (topLevel) {
+            topLevelArticles.add(id);
+            activeEntryHref = undefined;
+            activeEntryCandidate = undefined;
+            inTopLevelArticle = true;
+            if (frame && !frame.text.trim()) frame.inEntry = true;
+          }
+          articleDepth += 1;
+        }
+
+        if (
+          activeEntryCandidate &&
+          tag !== "a" &&
+          (BLOCK_KINDS[tag] || STRUCTURAL_BOUNDARIES.has(tag) || tag === "img")
+        ) {
+          activeEntryCandidate.sawBoundary = true;
+        }
+
         if (tag === "ul" || tag === "ol") {
           listStack.push(tag === "ol");
           element.onEndTag(() => {
@@ -263,6 +311,8 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
               ...(blockKind === "list-item"
                 ? { ordered: listStack[listStack.length - 1] ?? false }
                 : {}),
+              entryHref: activeEntryHref,
+              inEntry: inTopLevelArticle,
             };
           } else if (frame.rootId === null) {
             flushFrame();
@@ -274,6 +324,8 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
               ...(blockKind === "list-item"
                 ? { ordered: listStack[listStack.length - 1] ?? false }
                 : {}),
+              entryHref: activeEntryHref,
+              inEntry: inTopLevelArticle,
             };
           } else if (tag === "p" && frame.kind === "quote") {
             addBreak(frame);
@@ -286,8 +338,23 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
 
         if (STRUCTURAL_BOUNDARIES.has(tag)) {
           if (frame?.rootId === null && frame.text.trim()) flushFrame();
+          if (topLevelArticles.has(id)) {
+            blocks.push({ kind: "separator", html: "", text: "" });
+          }
           element.onEndTag(() => {
             if (frame?.rootId === null && frame.text.trim()) flushFrame();
+            if (tag === "article" && articleCount > 1) {
+              articleDepth = Math.max(0, articleDepth - 1);
+              if (topLevelArticles.has(id)) {
+                activeEntryHref = undefined;
+                activeEntryCandidate = undefined;
+                inTopLevelArticle = false;
+                if (frame && !frame.text.trim()) {
+                  frame.entryHref = undefined;
+                  frame.inEntry = false;
+                }
+              }
+            }
           });
           return;
         }
@@ -334,6 +401,33 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
         if (tag === "a") {
           const href = safeLink(element.getAttribute("href"), baseUrl);
           if (!href) return;
+          if (
+            articleDepth > 0 &&
+            !activeEntryHref &&
+            (!frame || !frame.text.trim() || frame.kind.startsWith("heading-"))
+          ) {
+            const active = ensureParagraph();
+            activeEntryHref = href;
+            active.entryHref = href;
+            const candidate = {
+              href,
+              frame: active,
+              htmlStart: active.html.length,
+              sawBoundary: false,
+            };
+            activeEntryCandidate = candidate;
+            element.onEndTag(() => {
+              if (!candidate.sawBoundary && frame === candidate.frame) {
+                const before = frame.html.slice(0, candidate.htmlStart);
+                const linked = frame.html.slice(candidate.htmlStart);
+                frame.html = `${before}<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${linked}</a>`;
+                frame.entryHref = undefined;
+              }
+              if (activeEntryHref === href) activeEntryHref = undefined;
+              if (activeEntryCandidate === candidate) activeEntryCandidate = undefined;
+            });
+            return;
+          }
           ensureParagraph().html += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">`;
           element.onEndTag(() => {
             if (frame) frame.html += "</a>";
@@ -355,7 +449,56 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
     })
     .transform(html.slice(0, MAX_READER_SOURCE_CHARACTERS));
 
-  return blocks;
+  const topLevelArticleCount = blocks.filter((block) => block.kind === "separator").length;
+  if (topLevelArticleCount <= 1) {
+    return blocks
+      .filter((block) => block.kind !== "separator")
+      .map(({ entryHref: _entryHref, inEntry: _inEntry, ...block }) => block);
+  }
+
+  const formatted: ReaderBlock[] = [];
+  let atEntryStart = false;
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (!block) continue;
+    if (block.kind === "separator") {
+      formatted.push(block);
+      atEntryStart = true;
+      continue;
+    }
+    const monthDay = blocks[index]?.text.trim() ?? "";
+    const year = blocks[index + 1]?.text.trim() ?? "";
+    const category = blocks[index + 2]?.text.trim() ?? "";
+    if (
+      atEntryStart &&
+      block.kind === "paragraph" &&
+      /^\d{2}\.\d{2}$/u.test(monthDay) &&
+      blocks[index + 1]?.kind === "paragraph" &&
+      /^\d{4}$/u.test(year) &&
+      blocks[index + 2]?.kind === "paragraph" &&
+      category.length > 0 &&
+      category.length <= 40 &&
+      blocks[index + 3]?.kind.startsWith("heading-")
+    ) {
+      const text = `${monthDay} · ${year} · ${category}`;
+      const metadataHtml = `${block.html.trim()} · ${(blocks[index + 1]?.html ?? "").trim()} · ${(blocks[index + 2]?.html ?? "").trim()}`;
+      formatted.push({ kind: "entry-metadata", html: metadataHtml, text });
+      index += 2;
+      atEntryStart = false;
+      continue;
+    }
+    atEntryStart = false;
+    if (
+      block.inEntry === true &&
+      block.kind === "paragraph" &&
+      /^(?:閱讀全文|阅读全文|read more)\s*→?$/iu.test(block.text.trim())
+    ) {
+      formatted.push({ ...block, kind: "entry-action" });
+      continue;
+    }
+    formatted.push(block);
+  }
+  return formatted;
 }
 
 export function parseReaderText(text: string): ReaderBlock[] {
@@ -547,6 +690,10 @@ export function readerBlocksText(blocks: ReaderBlock[]): string {
 
 export function renderReaderBlocks(blocks: ReaderBlock[]): string {
   const output: string[] = [];
+  const entryHtml = (block: ReaderBlock) =>
+    block.entryHref
+      ? `<a href="${escapeHtml(block.entryHref)}" target="_blank" rel="noopener noreferrer">${block.html}</a>`
+      : block.html;
   let list: { ordered: boolean; items: string[] } | null = null;
 
   function flushList(): void {
@@ -569,11 +716,17 @@ export function renderReaderBlocks(blocks: ReaderBlock[]): string {
     flushList();
     if (block.kind.startsWith("heading-")) {
       const level = block.kind.slice(-1);
-      output.push(`<h${level}>${block.html}</h${level}>`);
+      output.push(`<h${level}>${entryHtml(block)}</h${level}>`);
     } else if (block.kind === "quote") {
       output.push(`<blockquote>${block.html}</blockquote>`);
     } else if (block.kind === "code") {
       output.push(`<pre><code>${block.html}</code></pre>`);
+    } else if (block.kind === "separator") {
+      output.push('<hr class="reader-entry-divider" aria-hidden="true">');
+    } else if (block.kind === "entry-metadata") {
+      output.push(`<p class="reader-entry-metadata">${block.html}</p>`);
+    } else if (block.kind === "entry-action") {
+      output.push(`<p class="reader-entry-action">${entryHtml(block)}</p>`);
     } else if (block.kind === "image" && block.src) {
       const dimensions = `${block.width ? ` width="${block.width}"` : ""}${block.height ? ` height="${block.height}"` : ""}`;
       const alt = block.alt?.trim() || "圖片無法載入";
