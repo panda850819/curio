@@ -707,6 +707,11 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
 .reader-body h2 { font-size: 1.28rem; }
 .reader-body h3 { font-size: 1.14rem; }
 .reader-body p { margin: 0 0 1.15rem; white-space: normal; }
+.reader-entry-divider { margin: 2.4rem 0 1.1rem; border: 0; border-top: 1px solid var(--line); }
+.reader-entry-divider:first-child { margin-top: 0; border-top-color: transparent; }
+.reader-entry-metadata { margin-bottom: 0.45rem !important; color: var(--ink-soft); font-size: 0.78rem; font-weight: 650; letter-spacing: 0.04em; }
+.reader-entry-metadata + h1, .reader-entry-metadata + h2, .reader-entry-metadata + h3 { margin-top: 0; }
+.reader-entry-action { margin-top: -0.25rem !important; font-size: 0.88rem; font-weight: 650; }
 .reader-body ul, .reader-body ol { margin: 0 0 1.25rem; padding-inline-start: 1.5rem; }
 .reader-body li + li { margin-top: 0.45rem; }
 .reader-body blockquote { margin: 1.5rem 0; padding: 1rem 1.1rem; color: var(--ink-soft); background: var(--paper-deep); border-radius: var(--radius-sm); }
@@ -717,8 +722,8 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
 .reader-image-missing { min-height: 6rem; display: grid; place-items: center; padding: 1rem; color: var(--ink-soft); background: var(--paper-deep); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); }
 .reader-image-missing img { display: none; }
 .reader-image-fallback { font-size: 0.82rem; text-align: center; user-select: none; }
-.reader-body p > a:only-child { color: inherit; text-decoration: none; }
-@media (hover: hover) { .reader-body p > a:only-child:hover { color: var(--rust); text-decoration: underline; } }
+.reader-body p > a:only-child, .reader-body h1 > a:only-child, .reader-body h2 > a:only-child, .reader-body h3 > a:only-child { color: inherit; text-decoration: none; }
+@media (hover: hover) { .reader-body p > a:only-child:hover, .reader-body h1 > a:only-child:hover, .reader-body h2 > a:only-child:hover, .reader-body h3 > a:only-child:hover { color: var(--rust); text-decoration: underline; } }
 .reader-quote-capture, .reader-saved-quotes { padding: 1.75rem 0; border-top: 1px solid var(--line); }
 .reader-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.8rem; }
 .reader-section-heading h2 { margin: 0; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; font-size: 1.25rem; font-weight: 600; }
