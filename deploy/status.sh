@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT=${CURIO_ROOT:-/opt/curio}
-IMAGE=${CURIO_IMAGE:-curio/server:216598f}
+IMAGE=${CURIO_IMAGE:-curio/server:b0062f7}
 cd "$ROOT"
 
 echo '--- compose ---'

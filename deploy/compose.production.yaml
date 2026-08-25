@@ -1,6 +1,6 @@
 services:
   curio:
-    image: ${CURIO_IMAGE:-curio/server:216598f}
+    image: ${CURIO_IMAGE:-curio/server:b0062f7}
     restart: unless-stopped
     init: true
     entrypoint: ["/bin/sh", "-c"]

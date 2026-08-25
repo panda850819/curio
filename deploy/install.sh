@@ -4,8 +4,8 @@ umask 077
 
 ROOT=${CURIO_ROOT:-/opt/curio}
 REPOSITORY=${CURIO_REPOSITORY:-https://github.com/panda850819/curio.git}
-REVISION=${CURIO_REVISION:-216598f1b8e8ac49c01c963d0be892bad7c13769}
-IMAGE=${CURIO_IMAGE:-curio/server:216598f}
+REVISION=${CURIO_REVISION:-b0062f73de9102001de30d673c8963ac2a458c2b}
+IMAGE=${CURIO_IMAGE:-curio/server:b0062f7}
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 if [[ $(id -u) -ne 0 ]]; then
