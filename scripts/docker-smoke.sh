@@ -55,9 +55,10 @@ wait_for_health
 
 migration_count=$(docker exec "$container" bun -e \
   "import {Database} from 'bun:sqlite';const db=new Database('/data/curio.db');console.log(db.query('SELECT COUNT(*) AS count FROM schema_migrations').get().count);db.close()")
+expected_migration_count=$(find migrations -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')
 
-if [[ "$migration_count" != "1" ]]; then
-  echo "expected one applied migration after restart, got $migration_count" >&2
+if [[ "$migration_count" != "$expected_migration_count" ]]; then
+  echo "expected $expected_migration_count applied migrations after restart, got $migration_count" >&2
   exit 1
 fi
 

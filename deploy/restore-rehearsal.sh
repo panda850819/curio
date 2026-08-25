@@ -3,7 +3,8 @@ set -euo pipefail
 umask 077
 
 ROOT=${CURIO_ROOT:-/opt/curio}
-IMAGE=${CURIO_IMAGE:-curio/server:5bf99fe}
+REVISION=${CURIO_REVISION:-216598f1b8e8ac49c01c963d0be892bad7c13769}
+IMAGE=${CURIO_IMAGE:-curio/server:216598f}
 BACKUP=${1:-}
 RESTORE_DIR="$ROOT/restore-test"
 RESTORE_DB="$RESTORE_DIR/curio.db"
@@ -13,6 +14,11 @@ if [[ -z "$BACKUP" ]]; then
 fi
 if [[ -z "$BACKUP" || ! -f "$BACKUP" ]]; then
   echo "backup file not found" >&2
+  exit 1
+fi
+image_revision=$(docker image inspect "$IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+if [[ "$image_revision" != "$REVISION" ]]; then
+  echo "restore image revision mismatch: expected $REVISION, got $image_revision" >&2
   exit 1
 fi
 install -d -m 0700 "$RESTORE_DIR"
@@ -29,9 +35,10 @@ docker run --rm \
   --volume "$RESTORE_DIR:/restore" \
   --env DATABASE_PATH=/restore/curio.db \
   "$IMAGE" bun run src/db/migrate.ts >/dev/null
-migration_count=$(sqlite3 "$RESTORE_DB" 'SELECT count(*) FROM schema_migrations;')
-if [[ "$migration_count" != 7 ]]; then
-  echo "restored migration count mismatch: $migration_count" >&2
+expected_migrations=$'001_initialize.sql\n002_core_ingestion.sql\n003_subscription_health.sql\n004_subscription_scheduling.sql\n005_telegram_delivery.sql\n006_routes.sql\n007_telegram_bot.sql\n008_item_enrichments.sql\n009_reader_state_quotes.sql'
+applied_migrations=$(sqlite3 "$RESTORE_DB" 'SELECT name FROM schema_migrations ORDER BY version;')
+if [[ "$applied_migrations" != "$expected_migrations" ]]; then
+  echo "restored migration set does not match release $REVISION" >&2
   exit 1
 fi
 printf 'restore_rehearsal_ok %s\n' "$RESTORE_DB"
