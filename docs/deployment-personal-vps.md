@@ -1,6 +1,6 @@
 # Curio deployment on personal-vps
 
-This runbook deploys application revision `13064ec907c70138ca557ee71f09e1cd0eee46ba` as image `curio/server:13064ec`. It publishes no host port and uses only `personal-infra_private`.
+This runbook deploys application revision `1164c3fce0d03b531f0592a76b79d787e2f1a008` as image `curio/server:1164c3f`. It publishes no host port and uses only `personal-infra_private`.
 
 ## 1. Create the secret file
 
@@ -42,7 +42,7 @@ sudo /path/to/deploy/install.sh
 1. checks the private Docker network and secret-file mode;
 2. creates a pre-deploy SQLite backup when a database already exists;
 3. clones/fetches and checks out the exact accepted revision;
-4. builds and labels immutable image `curio/server:13064ec`;
+4. builds and labels immutable image `curio/server:1164c3f`;
 5. installs production Compose and operations scripts;
 6. validates Compose without printing rendered secrets;
 7. starts the service with `--no-build`.

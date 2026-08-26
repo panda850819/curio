@@ -3,8 +3,8 @@ set -euo pipefail
 umask 077
 
 ROOT=${CURIO_ROOT:-/opt/curio}
-REVISION=${CURIO_REVISION:-13064ec907c70138ca557ee71f09e1cd0eee46ba}
-IMAGE=${CURIO_IMAGE:-curio/server:13064ec}
+REVISION=${CURIO_REVISION:-1164c3fce0d03b531f0592a76b79d787e2f1a008}
+IMAGE=${CURIO_IMAGE:-curio/server:1164c3f}
 BACKUP=${1:-}
 RESTORE_DIR="$ROOT/restore-test"
 RESTORE_DB="$RESTORE_DIR/curio.db"
