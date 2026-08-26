@@ -210,9 +210,11 @@ describe("Reader content", () => {
   });
 
   test("escapes plain text and keeps paragraph boundaries", () => {
-    expect(renderReaderBlocks(parseReaderText("第一段 <script>\n仍是文字\n\n第二段 & more"))).toBe(
-      "<p>第一段 &lt;script&gt;<br>仍是文字</p><p>第二段 &amp; more</p>",
-    );
+    expect(
+      renderReaderBlocks(
+        parseReaderText("&#31532;&#19968;段 <script>\n仍是文字\n\n第二段 &amp; more"),
+      ),
+    ).toBe("<p>第一段 &lt;script&gt;<br>仍是文字</p><p>第二段 &amp; more</p>");
   });
 
   test("keeps HTML line breaks aligned with canonical quote text", () => {

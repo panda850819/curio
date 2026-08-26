@@ -111,7 +111,7 @@ const STRUCTURAL_BOUNDARIES = new Set([
   "tr",
 ]);
 
-function decodeHtmlEntities(value: string): string {
+export function decodeHtmlEntities(value: string): string {
   return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]+);/giu, (entity, token: string) => {
     if (token.startsWith("#")) {
       const hexadecimal = token[1]?.toLowerCase() === "x";
@@ -502,8 +502,7 @@ export function parseReaderHtml(html: string, baseUrl?: string | null): ReaderBl
 }
 
 export function parseReaderText(text: string): ReaderBlock[] {
-  return text
-    .slice(0, MAX_READER_SOURCE_CHARACTERS)
+  return decodeHtmlEntities(text.slice(0, MAX_READER_SOURCE_CHARACTERS))
     .replaceAll("\r\n", "\n")
     .split(/\n\s*\n/u)
     .map((paragraph) => paragraph.trim())

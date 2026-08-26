@@ -4,7 +4,7 @@ import { decodeCursor } from "../app/pagination.ts";
 import { DELIVERY_STATUSES } from "../delivery/types.ts";
 import type { DeliveryStatus, Item, NewRoute, Route, Subscription } from "../domain/types.ts";
 import type { SubscriptionCandidate } from "../probe/types.ts";
-import { renderReaderBlocks } from "../reader/content.ts";
+import { decodeHtmlEntities, renderReaderBlocks } from "../reader/content.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "../security/redaction.ts";
 import { curioFaviconHref, curioMarkSvg } from "./brand.ts";
 
@@ -66,7 +66,7 @@ function escapeHtml(value: unknown): string {
 }
 
 function displayText(value: unknown, maximum = DISPLAY_LIMIT): string {
-  return escapeHtml(sanitizeErrorMessage(String(value ?? ""), maximum));
+  return escapeHtml(sanitizeErrorMessage(decodeHtmlEntities(String(value ?? "")), maximum));
 }
 
 function displayUrl(value: string): string {
