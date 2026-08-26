@@ -118,7 +118,7 @@ describe("Curio Web UI", () => {
               <link>https://example.com/posts/reader-one</link>
               <author>測試作者</author>
               <pubDate>Thu, 01 Jan 1970 00:00:01 GMT</pubDate>
-              <description>兩行摘要會留在閱讀清單，正文則在文章頁呈現。</description>
+              <description><![CDATA[&#20841;&#34892;摘要會留在閱讀清單，正文則在文章頁呈現。]]></description>
               <content:encoded><![CDATA[
                 <article onclick="steal()">
                   <h2>正文標題</h2>
@@ -158,6 +158,8 @@ describe("Curio Web UI", () => {
     expect(timelineHtml).toContain("閱讀測試");
     expect(timelineHtml).toContain("一篇很長但值得在手機上安靜讀完的文章");
     expect(timelineHtml).toContain("發布");
+    expect(timelineHtml).toContain("兩行摘要會留在閱讀清單");
+    expect(timelineHtml).not.toContain("&amp;#20841;");
     expect(timelineHtml).toContain(`/reader/items/${item?.id}`);
 
     const article = await context.ui(
