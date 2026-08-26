@@ -454,6 +454,64 @@ for (const link of document.querySelectorAll('.reader-row-link')) {
     link.setAttribute('aria-label', '正在開啟文章');
   });
 }
+const dateLinks = [...document.querySelectorAll('[data-reader-date-link]')];
+const readerDays = [...document.querySelectorAll('[data-reader-day]')];
+if (dateLinks.length && readerDays.length && 'IntersectionObserver' in window) {
+  const setCurrentDay = (id) => {
+    for (const link of dateLinks) {
+      if (link.getAttribute('href') === '#' + id) link.setAttribute('aria-current', 'location');
+      else link.removeAttribute('aria-current');
+    }
+  };
+  const isScrollable = () => document.documentElement.scrollHeight > window.innerHeight + 2;
+  const isPageEnd = () =>
+    isScrollable() &&
+    window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+  let lockedFragmentDay = null;
+  const selectFragmentDay = (id) => {
+    const requestedDay = readerDays.find((day) => day.id === id);
+    if (!requestedDay) return;
+    lockedFragmentDay = requestedDay.id;
+    setCurrentDay(requestedDay.id);
+  };
+  const setFragmentDay = () => selectFragmentDay(window.location.hash.slice(1));
+  const releaseFragmentDay = () => {
+    lockedFragmentDay = null;
+    if (isPageEnd()) setCurrentDay(readerDays[readerDays.length - 1].id);
+  };
+  for (const link of dateLinks) {
+    link.addEventListener('click', () => selectFragmentDay(link.getAttribute('href').slice(1)));
+  }
+  window.addEventListener('hashchange', setFragmentDay);
+  window.addEventListener('wheel', releaseFragmentDay, { passive: true });
+  window.addEventListener('touchstart', releaseFragmentDay, { passive: true });
+  window.addEventListener('pointerdown', releaseFragmentDay, { passive: true });
+  window.addEventListener('keydown', (event) => {
+    if (['ArrowDown', 'ArrowUp', 'End', 'Home', 'PageDown', 'PageUp', ' '].includes(event.key)) releaseFragmentDay();
+  });
+  window.addEventListener('scroll', () => {
+    if (lockedFragmentDay) setCurrentDay(lockedFragmentDay);
+    else if (isPageEnd()) setCurrentDay(readerDays[readerDays.length - 1].id);
+  }, { passive: true });
+  const dayObserver = new IntersectionObserver((entries) => {
+    if (lockedFragmentDay) {
+      setCurrentDay(lockedFragmentDay);
+      return;
+    }
+    if (!isScrollable()) {
+      setCurrentDay(readerDays[0].id);
+      return;
+    }
+    if (isPageEnd()) {
+      setCurrentDay(readerDays[readerDays.length - 1].id);
+      return;
+    }
+    const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+    if (visible?.target?.id) setCurrentDay(visible.target.id);
+  }, { rootMargin: '-12% 0px -68% 0px', threshold: 0 });
+  for (const day of readerDays) dayObserver.observe(day);
+  setFragmentDay();
+}
 const markImageMissing = (image) => {
   const figure = image.closest('.reader-image');
   if (!figure) return;
@@ -660,11 +718,26 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
 .reader-heading { max-width: 48rem; margin: 0 auto 2.8rem; }
 .reader-heading h1 { margin: 0.25rem 0 0.5rem; font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; font-size: clamp(2.25rem, 5vw, 3.7rem); line-height: 1.08; font-weight: 600; text-wrap: balance; }
 .reader-heading > p:last-child { margin: 0; color: var(--ink-soft); }
+.reader-timeline-heading { width: min(100%, 62rem); max-width: none; padding-right: 14rem; }
 .reader-heading-row { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; }
 .reader-heading-row h1, .reader-heading-row p { margin-inline: 0; }
 .reader-heading-row p { margin-block: 0; color: var(--ink-soft); }
-.reader-day { max-width: 48rem; margin: 0 auto 2.25rem; }
-.reader-day > h2 { margin: 0 0 0.5rem; color: var(--ink-soft); font-size: 0.76rem; font-weight: 700; letter-spacing: 0.06em; }
+.reader-timeline-layout { width: min(100%, 62rem); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 48rem) 10rem; gap: 4rem; align-items: start; }
+.reader-timeline-content { min-width: 0; }
+.reader-date-nav { grid-column: 2; grid-row: 1; position: sticky; top: 1rem; padding-left: 1rem; border-left: 1px solid var(--line); }
+.reader-date-nav-label { display: block; margin-bottom: 0.7rem; color: var(--ink-soft); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.1em; }
+.reader-date-nav ol { display: grid; gap: 0.2rem; margin: 0; padding: 0; list-style: none; }
+.reader-date-nav a { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.65rem; padding: 0.5rem 0; color: var(--ink-soft); text-decoration: none; font-size: 0.78rem; }
+.reader-date-nav a::before { content: ""; position: absolute; width: 0.45rem; height: 0.45rem; margin-left: -1.25rem; border-radius: 50%; background: var(--line); }
+.reader-date-nav a[aria-current="location"] { color: var(--ink); font-weight: 750; }
+.reader-date-nav a[aria-current="location"]::before { background: var(--rust); box-shadow: 0 0 0 3px var(--paper); }
+.reader-date-nav strong { min-width: 1.7rem; padding: 0.08rem 0.38rem; color: inherit; background: var(--paper-deep); border-radius: 99px; font-size: 0.68rem; text-align: center; }
+.reader-day { max-width: 48rem; margin: 0 auto 2.8rem; scroll-margin-top: 1rem; }
+.reader-day:focus { outline: none; }
+.reader-day:focus-visible { outline: 2px solid var(--brass); outline-offset: 0.45rem; }
+.reader-day-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.55rem; }
+.reader-day-heading h2 { margin: 0; color: var(--ink); font-family: "Iowan Old Style", Baskerville, "Songti TC", "Noto Serif TC", serif; font-size: 1.08rem; font-weight: 600; }
+.reader-day-heading span { color: var(--ink-soft); font-size: 0.72rem; }
 .reader-list { border-top: 1px solid var(--line); }
 .reader-row { border-bottom: 1px solid var(--line); }
 .reader-row-layout { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: center; }
@@ -747,7 +820,23 @@ details summary { cursor: pointer; color: var(--moss-dark); font-weight: 800; }
 .footer { width: min(100% - 2rem, var(--measure)); margin: 0 auto; padding: 1.2rem 0 1.8rem; display: flex; justify-content: space-between; gap: 1rem; color: var(--ink-soft); font-size: 0.75rem; border-top: 1px solid var(--line); }
 .footer span:last-child { display: flex; gap: 0.8rem; }
 @media (hover: hover) { .button-link:hover, button:hover { transition: background-color 140ms ease-out, color 140ms ease-out, border-color 140ms ease-out; } .reader-row-link:hover h3 { color: var(--rust); } }
-@media (max-width: 840px) { .topbar { align-items: start; flex-wrap: wrap; } .primary-nav { order: 3; width: 100%; } .environment-label { margin-left: auto; } .dashboard-grid, .detail-layout { grid-template-columns: 1fr; } }
+@media (max-width: 840px) {
+  .topbar { align-items: start; flex-wrap: wrap; }
+  .primary-nav { order: 3; width: 100%; }
+  .environment-label { margin-left: auto; }
+  .dashboard-grid, .detail-layout { grid-template-columns: 1fr; }
+  .reader-timeline-heading { max-width: 48rem; padding-right: 0; }
+  .reader-timeline-layout { display: block; width: min(100%, 48rem); }
+  .reader-date-nav { position: sticky; top: 0; z-index: 2; margin: 0 0 1.5rem; padding: 0.5rem 0; overflow-x: auto; background: color-mix(in oklch, var(--paper), transparent 4%); border-left: 0; border-block: 1px solid var(--line); backdrop-filter: blur(8px); }
+  .reader-date-nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .reader-date-nav ol { display: flex; gap: 0.35rem; }
+  .reader-date-nav li { flex: none; }
+  .reader-date-nav a { display: flex; min-height: 2.45rem; padding: 0.35rem 0.7rem; border-radius: 99px; }
+  .reader-date-nav a::before { display: none; }
+  .reader-date-nav a[aria-current="location"] { color: var(--paper-lift); background: var(--moss-dark); }
+  .reader-date-nav strong { background: color-mix(in oklch, currentColor, transparent 88%); }
+  .reader-day { scroll-margin-top: 4.5rem; }
+}
 @media (max-width: 640px) {
   main { padding-top: 2rem; }
   .topbar { width: min(100% - 1.25rem, var(--measure)); }
@@ -906,10 +995,17 @@ function readerTimelineContent(
     entries.push(item);
     groups.set(group, entries);
   }
-  const sections = ["今天", "昨天", "更早"]
-    .flatMap((label) => {
-      const items = groups.get(label) ?? [];
-      if (items.length === 0) return [];
+  const groupDefinitions = [
+    { label: "今天", id: "reader-today" },
+    { label: "昨天", id: "reader-yesterday" },
+    { label: "更早", id: "reader-earlier" },
+  ] as const;
+  const availableGroups = groupDefinitions.flatMap((group) => {
+    const items = groups.get(group.label) ?? [];
+    return items.length > 0 ? [{ ...group, items }] : [];
+  });
+  const sections = availableGroups
+    .map(({ label, id, items }) => {
       const rows = items
         .map((item) => {
           const subscription = subscriptions.get(item.subscriptionId);
@@ -920,22 +1016,28 @@ function readerTimelineContent(
           return `<article class="reader-row${state.isRead ? " reader-row-read" : ""}"><div class="reader-row-layout"><a class="reader-row-link" href="/reader/items/${encodeURIComponent(item.id)}"><span class="reader-row-meta"><span><span class="reader-unread-dot" aria-hidden="true"></span>${displayText(source, 90)}${state.isFavorite ? '<span class="reader-favorite-label">已收藏</span>' : ""}</span><time datetime="${escapeHtml(new Date(item.publishedAt ?? item.discoveredAt).toISOString())}">${item.publishedAt === null ? "收集" : "發布"} ${formatDate(item.publishedAt ?? item.discoveredAt)}</time></span><h3>${displayText(title, 180)}</h3><p>${displayText(preview, 260)}</p></a><div class="reader-row-controls" aria-label="閱讀操作"><form method="post" action="/reader/items/${encodeURIComponent(item.id)}/read" data-loading>${csrfField(session)}<input type="hidden" name="value" value="${state.isRead ? "false" : "true"}"><button class="reader-text-button" type="submit">${state.isRead ? "標為未讀" : "標為已讀"}</button></form><form method="post" action="/reader/items/${encodeURIComponent(item.id)}/favorite" data-loading>${csrfField(session)}<input type="hidden" name="value" value="${state.isFavorite ? "false" : "true"}"><button class="reader-text-button" type="submit">${state.isFavorite ? "取消收藏" : "收藏"}</button></form></div></div></article>`;
         })
         .join("");
-      return [
-        `<section class="reader-day" aria-labelledby="reader-${label}"><h2 id="reader-${label}">${label}</h2><div class="reader-list">${rows}</div></section>`,
-      ];
+      return `<section class="reader-day" id="${id}" data-reader-day aria-labelledby="${id}-heading" tabindex="-1"><div class="reader-day-heading"><h2 id="${id}-heading">${label}</h2><span>${formatNumber(items.length)} 篇</span></div><div class="reader-list">${rows}</div></section>`;
     })
     .join("");
   const older = page.nextCursor
     ? `<div class="reader-more">${link(`/reader?cursor=${encodeURIComponent(page.nextCursor)}`, "閱讀較早內容", "button-secondary")}</div>`
     : "";
+  const dateNavigation = availableGroups.length
+    ? `<nav class="reader-date-nav" aria-label="依日期跳轉"><span class="reader-date-nav-label">時間軸</span><ol>${availableGroups
+        .map(
+          ({ label, id, items }, index) =>
+            `<li><a href="#${id}" data-reader-date-link${index === 0 ? ' aria-current="location"' : ""}><span>${label}</span><strong>${formatNumber(items.length)}</strong></a></li>`,
+        )
+        .join("")}</ol></nav>`
+    : "";
   const body = sections
-    ? `${sections}${older}`
+    ? `<div class="reader-timeline-layout">${dateNavigation}<div class="reader-timeline-content" aria-live="polite">${sections}${older}</div></div>`
     : emptyState(
         "閱讀清單還是空的",
         "新增第一個來源後，收集到的內容會依日期出現在這裡。",
         link("/subscriptions/new", "新增訂閱"),
       );
-  return `<header class="reader-heading"><p class="eyebrow">READER／拾起來讀</p><div class="reader-heading-row"><div><h1>閱讀</h1><p>從最近收集的內容開始，不讓管理狀態打斷閱讀。</p></div>${link("/reader/quotes", "我的摘錄", "button-secondary")}</div></header><div aria-live="polite">${body}</div>`;
+  return `<header class="reader-heading reader-timeline-heading"><p class="eyebrow">READER／拾起來讀</p><div class="reader-heading-row"><div><h1>閱讀</h1><p>從最近收集的內容開始，不讓管理狀態打斷閱讀。</p></div>${link("/reader/quotes", "我的摘錄", "button-secondary")}</div></header>${body}`;
 }
 
 function readerArticleContent(app: CurioApplication, session: UiSession, itemId: string): string {

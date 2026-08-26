@@ -212,6 +212,53 @@ describe("Curio Web UI", () => {
     context.database.close();
   });
 
+  test("renders accessible date navigation for long Reader timelines", async () => {
+    const context = harness({
+      get: async (url) => ({
+        url,
+        status: 200,
+        headers: {
+          get: (name: string) => (name === "content-type" ? "application/rss+xml" : null),
+        },
+        body: new TextEncoder().encode(`
+          <rss version="2.0"><channel><title>Date rail</title>
+            <item><guid>today</guid><title>Today</title><pubDate>Thu, 01 Jan 1970 00:00:01 GMT</pubDate></item>
+            <item><guid>yesterday</guid><title>Yesterday</title><pubDate>Wed, 31 Dec 1969 00:00:01 GMT</pubDate></item>
+            <item><guid>earlier</guid><title>Earlier</title><pubDate>Tue, 30 Dec 1969 00:00:01 GMT</pubDate></item>
+          </channel></rss>`),
+      }),
+    });
+    const followed = context.app.services.subscriptions.follow({
+      candidate: {
+        adapter: "rss",
+        format: "rss",
+        sourceKey: feedUrl,
+        sourceUrl: feedUrl,
+        title: "Date rail",
+        discoveredVia: "direct",
+      },
+      intervalMinutes: 60,
+    });
+    await context.app.services.subscriptions.poll(followed.subscription.id);
+
+    const response = await context.ui(new Request("http://curio.test/reader"));
+    const html = await response.text();
+    expect(html).toContain('<nav class="reader-date-nav" aria-label="依日期跳轉">');
+    expect(html).toContain('href="#reader-today" data-reader-date-link aria-current="location"');
+    expect(html).toContain('href="#reader-yesterday" data-reader-date-link');
+    expect(html).toContain('href="#reader-earlier" data-reader-date-link');
+    expect(html).toContain(
+      '<section class="reader-day" id="reader-today" data-reader-day aria-labelledby="reader-today-heading" tabindex="-1">',
+    );
+    expect(html).toContain("<strong>1</strong>");
+    expect(html).toContain("IntersectionObserver");
+    expect(html.indexOf("#reader-today")).toBeLessThan(html.indexOf("#reader-yesterday"));
+    expect(html.indexOf("#reader-yesterday")).toBeLessThan(html.indexOf("#reader-earlier"));
+
+    context.app.close();
+    context.database.close();
+  });
+
   test("persists Reader state and exact saved quotes through UI mutations", async () => {
     const context = harness({
       get: async (url) => ({
