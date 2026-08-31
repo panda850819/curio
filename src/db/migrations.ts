@@ -11,6 +11,7 @@ interface Migration {
 
 interface AppliedMigration {
   version: number;
+  name: string;
   checksum: string;
 }
 
@@ -50,6 +51,44 @@ function readMigrations(directory: string): Migration[] {
   return migrations;
 }
 
+export function currentSchemaVersion(directory: string): number {
+  return readMigrations(directory).at(-1)?.version ?? 0;
+}
+
+export function migrationSetIsApplied(database: Database, directory: string): boolean {
+  const expected = readMigrations(directory);
+  const applied = database
+    .query<AppliedMigration, []>(
+      "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
+    )
+    .all();
+
+  const expectedByVersion = new Map(expected.map((migration) => [migration.version, migration]));
+  const highestExpectedVersion = expected.at(-1)?.version ?? 0;
+  const appliedByVersion = new Map(applied.map((migration) => [migration.version, migration]));
+
+  return (
+    expected.every((migration) => {
+      const row = appliedByVersion.get(migration.version);
+      return row?.name === migration.name && row.checksum === migration.checksum;
+    }) &&
+    applied.every(
+      (migration) =>
+        migration.version > highestExpectedVersion || expectedByVersion.has(migration.version),
+    )
+  );
+}
+
+export function appliedSchemaVersion(database: Database): number {
+  return (
+    database
+      .query<{ version: number }, []>(
+        "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1",
+      )
+      .get()?.version ?? 0
+  );
+}
+
 export function migrate(database: Database, directory: string): number {
   database.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -61,7 +100,7 @@ export function migrate(database: Database, directory: string): number {
   `);
 
   const applied = database
-    .query<AppliedMigration, []>("SELECT version, checksum FROM schema_migrations")
+    .query<AppliedMigration, []>("SELECT version, name, checksum FROM schema_migrations")
     .all();
   const appliedByVersion = new Map(applied.map((row) => [row.version, row.checksum]));
   const insert = database.prepare(

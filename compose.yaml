@@ -2,7 +2,16 @@ services:
   curio:
     build:
       context: .
+      args:
+        CURIO_RELEASE_REVISION: ${CURIO_RELEASE_REVISION:-unknown}
+        CURIO_BUILD_TIME: ${CURIO_BUILD_TIME:-unknown}
     image: curio/server:local
+    labels:
+      com.panda.personal-infra.service: curio
+      com.panda.personal-infra.healthz: http://curio:3000/healthz
+      com.panda.personal-infra.readyz: http://curio:3000/readyz
+      com.panda.personal-infra.version: http://curio:3000/version
+      com.panda.personal-infra.revision: ${CURIO_RELEASE_REVISION:-unknown}
     restart: unless-stopped
     init: true
     environment:
@@ -40,7 +49,7 @@ services:
           "CMD",
           "bun",
           "-e",
-          "const r=await fetch('http://127.0.0.1:3000/health');if(!r.ok)process.exit(1)",
+          "const r=await fetch('http://127.0.0.1:3000/healthz');if(!r.ok)process.exit(1)",
         ]
       interval: 30s
       timeout: 3s

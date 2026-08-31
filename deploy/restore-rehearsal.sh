@@ -3,8 +3,19 @@ set -euo pipefail
 umask 077
 
 ROOT=${CURIO_ROOT:-/opt/curio}
-REVISION=${CURIO_REVISION:-1164c3fce0d03b531f0592a76b79d787e2f1a008}
-IMAGE=${CURIO_IMAGE:-curio/server:1164c3f}
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+release_values=$("$SCRIPT_DIR/release-values.sh" "$ROOT")
+IFS=$'\t' read -r IMAGE manifest_image_id REVISION _ _ <<< "$release_values"
+if [[ -f "$ROOT/compose.yaml" ]]; then
+  compose_image=$(docker compose --env-file "$ROOT/.env" -f "$ROOT/compose.yaml" config --images | awk 'NF { if (found) exit 2; found=1; value=$0 } END { if (found) print value }') || {
+    echo "restore Compose image list is invalid" >&2
+    exit 1
+  }
+  if [[ "$compose_image" != "$IMAGE" ]]; then
+    echo "restore Compose image does not match the release target" >&2
+    exit 1
+  fi
+fi
 BACKUP=${1:-}
 RESTORE_DIR="$ROOT/restore-test"
 RESTORE_DB="$RESTORE_DIR/curio.db"
@@ -14,6 +25,11 @@ if [[ -z "$BACKUP" ]]; then
 fi
 if [[ -z "$BACKUP" || ! -f "$BACKUP" ]]; then
   echo "backup file not found" >&2
+  exit 1
+fi
+image_id=$(docker image inspect "$IMAGE" --format '{{.Id}}')
+if [[ "$image_id" != "$manifest_image_id" ]]; then
+  echo "restore image ID mismatch with the release target" >&2
   exit 1
 fi
 image_revision=$(docker image inspect "$IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')

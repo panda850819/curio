@@ -8,6 +8,7 @@ import { ItemRepository, SubscriptionRepository } from "../db/repositories.ts";
 import { DestinationRepository, RouteRepository } from "../db/routing-repositories.ts";
 import { DeliveryRepository } from "../delivery/repository.ts";
 import type { TelegramTransport } from "../delivery/telegram.ts";
+import { checkReadiness, type ReadinessResult, schemaVersionForBuild } from "../health.ts";
 import { SafeHttpClient, SystemResolver } from "../probe/index.ts";
 import type { ProbeHttpClient } from "../probe/types.ts";
 import { ItemEnrichmentRepository } from "../reader/repository.ts";
@@ -64,6 +65,8 @@ export interface CurioApplication {
   readonly telegramHtmlSource: TelegramHtmlSourceAdapter;
   readonly emailSource: EmailSourceAdapter | null;
   readonly appliedMigrations: number;
+  readonly schemaVersion: number;
+  readonly readiness: () => ReadinessResult;
   close(): void;
 }
 
@@ -80,7 +83,10 @@ function createXClient(options: CreateAppOptions): XbirdTimelineClient {
 export function createApp(options: CreateAppOptions = {}): CurioApplication {
   const database = options.database ?? openDatabase(options.databasePath ?? "./data/curio.db");
   const ownsDatabase = options.database === undefined;
-  const appliedMigrations = migrate(database, options.migrationsPath ?? DEFAULT_MIGRATIONS_PATH);
+  const migrationsPath = options.migrationsPath ?? DEFAULT_MIGRATIONS_PATH;
+  const appliedMigrations = migrate(database, migrationsPath);
+  const schemaVersion = schemaVersionForBuild(migrationsPath);
+  const readiness = () => checkReadiness(database, migrationsPath);
   const now = options.now ?? Date.now;
 
   const destinations = new DestinationRepository(database, undefined, now);
@@ -163,6 +169,8 @@ export function createApp(options: CreateAppOptions = {}): CurioApplication {
     telegramHtmlSource,
     emailSource,
     appliedMigrations,
+    schemaVersion,
+    readiness,
     close() {
       if (closed || !ownsDatabase) return;
       closed = true;

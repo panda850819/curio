@@ -244,14 +244,16 @@ bun run dev
 檢查服務：
 
 ```bash
-curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:3000/healthz
 ```
 
 預期回應：
 
 ```json
-{"status":"ok","service":"curio","uptimeSeconds":0}
+{"status":"ok","service":"curio"}
 ```
+
+`/health` 保留原有的 uptime response 供既有 clients 使用；`/readyz` 驗證 SQLite 與 migration readiness，`/version` 回傳 immutable revision、build time 與 schema version。
 
 ### URL Probe
 
@@ -351,6 +353,7 @@ Telegram delivery 對每個 destination 依 `publishedAt` 由舊到新排序並�
 | `X_AUTH_TOKEN` | 未設定 | X `auth_token` session cookie；必須與 `X_CT0` 同時設定 |
 | `X_CT0` | 未設定 | X CSRF session cookie；必須與 `X_AUTH_TOKEN` 同時設定 |
 | `CURIO_NETWORK` | `personal-infra_private` | Compose 使用的既有 external Docker network |
+| `CURIO_HEALTH_CONTRACT` | `health-v1` | Production healthcheck contract；只有已知 rollback 才使用 `legacy-v0` |
 | `MIGRATIONS_PATH` | 專案的 `migrations/` | 只在自訂 migration 位置時設定 |
 
 `.env.example` 只能放可公開的範例值。真實 token、credential 與 private hostname 不得提交。
@@ -381,7 +384,7 @@ Runner 會：
 
 ## Production deployment
 
-`personal-vps` 的 immutable deployment、Telegram smoke、backup、restore 與 rollback 流程見 [`docs/deployment-personal-vps.md`](docs/deployment-personal-vps.md)。Production Compose 位於 [`deploy/compose.production.yaml`](deploy/compose.production.yaml)，不發布 host port。
+`personal-vps` 的 immutable deployment、Telegram smoke、backup、restore 與 rollback 流程見 [`docs/deployment-personal-vps.md`](docs/deployment-personal-vps.md)。Production Compose 位於 [`deploy/compose.production.yaml`](deploy/compose.production.yaml)，不發布 host port。Installer 必須收到明確接受的 full revision SHA 與 image tag，不再默認到舊版 release；它會先寫入 root-owned `release-manifest.env` 作為本次 desired release target，再切換 Compose/runtime 並驗證。失敗時不自動 rollback，依 runbook 手動處理；已知舊版 rollback 先記錄 root-owned `legacy-release-manifest.env` 再使用 `status-legacy.sh`。
 
 ## Docker
 
@@ -403,11 +406,11 @@ mkdir -p data media backups
 docker compose up --build -d
 ```
 
-Curio 不發布 host port，只透過 `personal-infra_private` 接受其他 container 的流量。從同一 network 測試：
+Curio 不發布 host port，只透過 `personal-infra_private` 接受其他 container 的流量。Production image 在 build 時嵌入 `CURIO_RELEASE_REVISION` 與 canonical UTC `CURIO_BUILD_TIME`（`YYYY-MM-DDTHH:MM:SSZ`），並以 `com.panda.personal-infra.service`、`com.panda.personal-infra.healthz`、`com.panda.personal-infra.readyz`、`com.panda.personal-infra.version`、`com.panda.personal-infra.revision` labels 供 private-network status collector discovery。從同一 network 測試：
 
 ```bash
 docker run --rm --network personal-infra_private oven/bun:1.3.5-alpine \
-  bun -e "console.log(await (await fetch('http://curio:3000/health')).text())"
+  bun -e "console.log(await (await fetch('http://curio:3000/healthz')).text())"
 ```
 
 完整的隔離式 container smoke test：

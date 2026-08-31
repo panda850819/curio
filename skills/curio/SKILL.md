@@ -83,7 +83,7 @@ CLI 的 mutation 若由 agent 代為執行，也要先取得使用者確認；`-
 - Saved quotes：`GET /api/v1/quotes?itemId=:id`
 - 路由：`GET /api/v1/routes?subscriptionId=:id`
 - 投遞：`GET /api/v1/deliveries`
-- 服務健康：`GET /health`
+- 服務 liveness：`GET /healthz`；readiness：`GET /readyz`；artifact identity：`GET /version`；既有 clients 仍可使用 `GET /health`
 - 投遞目的地驗證：`POST /api/v1/destinations/:id/verify`
 
 清單回應使用 `items` 與 `nextCursor`。有 `nextCursor` 時才繼續分頁，並原樣傳回 cursor。
