@@ -21,6 +21,16 @@
 
 每個回應都包含 `X-Request-Id`。可提供符合 `[A-Za-z0-9._-]{1,128}` 的 request ID，否則由服務產生。request log 只保存 path，不保存 query、body、token 或 URL credentials。
 
+## Service health and release identity
+
+`GET /health` 保留給既有 clients，回傳原有的 service 與 uptime 欄位。新的 machine-facing contract 使用三個不需要認證的 GET endpoint：
+
+- `/healthz`：只確認 HTTP process 正在服務，不呼叫 Telegram、feeds 或其他外部依賴。成功回傳 `{"status":"ok","service":"curio"}`。
+- `/readyz`：確認 SQLite connection 與 bundled migration set 都已就緒。每個 bundled migration 的 version、name、checksum 都必須正確；較高版本的 future migration rows 會保留並容忍，以支援 schema-tolerant rollback。成功回傳 `status: "ok"`；資料庫不可用或 accepted migration 不完整／變更時回傳相同形狀的 `status: "error"`，HTTP status 為 `503`。
+- `/version`：回傳 `{ "service": "curio", "revision": "...", "buildTime": "...", "schemaVersion": 10 }`。`revision` 與 `buildTime` 來自 immutable image build，`schemaVersion` 是該 image 接受的 migration schema version。
+
+這些 response 不包含 SQLite path、host details、runtime environment 或任何 credentials。Production image 也提供下列非敏感 Docker labels 供 private-network status collector discovery：`com.panda.personal-infra.service`、`com.panda.personal-infra.healthz`、`com.panda.personal-infra.readyz`、`com.panda.personal-infra.version` 與 `com.panda.personal-infra.revision`。
+
 ## Telegram webhook
 
 ### `POST /telegram/webhook`

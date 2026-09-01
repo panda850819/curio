@@ -23,16 +23,20 @@ function apiHarness(withEmail = false) {
   const database = new Database(":memory:", { strict: true });
   database.exec("PRAGMA foreign_keys = ON;");
   migrate(database, migrationsPath);
+  let probeCalls = 0;
   const probeClient: ProbeHttpClient = {
-    get: async (url) => ({
-      url,
-      status: 200,
-      headers: {
-        get: (name: string) =>
-          name.toLowerCase() === "content-type" ? "application/rss+xml" : null,
-      },
-      body: new TextEncoder().encode(feedBody),
-    }),
+    get: async (url) => {
+      probeCalls += 1;
+      return {
+        url,
+        status: 200,
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === "content-type" ? "application/rss+xml" : null,
+        },
+        body: new TextEncoder().encode(feedBody),
+      };
+    },
   };
   const telegramTransport: TelegramTransport = {
     send: async () => ({
@@ -68,12 +72,21 @@ function apiHarness(withEmail = false) {
       withEmail && app.emailSource
         ? createEmailWebhookHandler("email-secret", app.emailSource)
         : undefined,
+    readiness: app.readiness,
+    buildInfo: {
+      revision: "test-revision",
+      buildTime: "2026-08-31T00:00:00Z",
+      schemaVersion: app.schemaVersion,
+    },
     log: (event) => events.push(event),
   });
   return {
     database,
     app,
     events,
+    get probeCalls() {
+      return probeCalls;
+    },
     request: (request: Request) => handler(request),
   };
 }
@@ -86,6 +99,144 @@ describe("HTTP handler", () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ status: "ok", service: "curio" });
     expect(body).not.toHaveProperty("databasePath");
+  });
+
+  test("serves liveness, readiness, and version without probing external sources", async () => {
+    const context = apiHarness();
+
+    const liveness = await context.request(new Request("http://curio.test/healthz"));
+    expect(liveness.status).toBe(200);
+    expect(await liveness.json()).toEqual({ status: "ok", service: "curio" });
+    expect(context.probeCalls).toBe(0);
+
+    const readiness = await context.request(new Request("http://curio.test/readyz"));
+    expect(readiness.status).toBe(200);
+    expect(await readiness.json()).toEqual({
+      status: "ok",
+      service: "curio",
+      checks: { database: "ok", migrations: "ok" },
+      schemaVersion: 10,
+    });
+
+    const version = await context.request(new Request("http://curio.test/version"));
+    expect(version.status).toBe(200);
+    const versionText = await version.text();
+    expect(JSON.parse(versionText)).toEqual({
+      service: "curio",
+      revision: "test-revision",
+      buildTime: "2026-08-31T00:00:00Z",
+      schemaVersion: 10,
+    });
+    expect(versionText).not.toContain("secret-bot-token");
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("keeps the health contract available without authentication", async () => {
+    const context = apiHarness();
+    const handler = createHttpHandler({
+      services: context.app.services,
+      readiness: context.app.readiness,
+      authGuard: () => {
+        throw new Error("health endpoints must not require authentication");
+      },
+      log: () => undefined,
+    });
+
+    const response = await handler(new Request("http://curio.test/healthz"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ok", service: "curio" });
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("returns non-2xx when the accepted migration set is incomplete", async () => {
+    const context = apiHarness();
+    context.database.exec("DELETE FROM schema_migrations WHERE version = 10");
+
+    const response = await context.request(new Request("http://curio.test/readyz"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      status: "error",
+      service: "curio",
+      checks: { database: "ok", migrations: "error" },
+      schemaVersion: 9,
+    });
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("tolerates additional higher-version migrations", async () => {
+    const context = apiHarness();
+    context.database.exec(`
+      INSERT INTO schema_migrations (version, name, checksum, applied_at)
+      VALUES (11, '011_future_feature.sql', 'future-checksum', '2026-08-31T00:00:00Z')
+    `);
+
+    const response = await context.request(new Request("http://curio.test/readyz"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "ok",
+      service: "curio",
+      checks: { database: "ok", migrations: "ok" },
+      schemaVersion: 11,
+    });
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("returns non-2xx when an applied migration name differs", async () => {
+    const context = apiHarness();
+    context.database.exec(
+      "UPDATE schema_migrations SET name = '010_tampered.sql' WHERE version = 10",
+    );
+
+    const response = await context.request(new Request("http://curio.test/readyz"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      status: "error",
+      service: "curio",
+      checks: { database: "ok", migrations: "error" },
+    });
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("returns non-2xx when an applied migration checksum differs", async () => {
+    const context = apiHarness();
+    context.database.exec(
+      "UPDATE schema_migrations SET checksum = 'tampered-checksum' WHERE version = 10",
+    );
+
+    const response = await context.request(new Request("http://curio.test/readyz"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      status: "error",
+      service: "curio",
+      checks: { database: "ok", migrations: "error" },
+    });
+
+    context.app.close();
+    context.database.close();
+  });
+
+  test("returns non-2xx when SQLite is unavailable", async () => {
+    const context = apiHarness();
+    context.database.close();
+
+    const response = await context.request(new Request("http://curio.test/readyz"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      status: "error",
+      service: "curio",
+      checks: { database: "error", migrations: "not_checked" },
+      schemaVersion: 0,
+    });
   });
 
   test("exposes an agent manifest without runtime secrets", async () => {
@@ -102,6 +253,9 @@ describe("HTTP handler", () => {
 
     expect(response.status).toBe(200);
     expect(body.data).toMatchObject({ manifestVersion: "1", service: "curio" });
+    expect(body.data.operations.map((operation) => operation.id)).toContain("health.liveness");
+    expect(body.data.operations.map((operation) => operation.id)).toContain("health.readiness");
+    expect(body.data.operations.map((operation) => operation.id)).toContain("version.read");
     expect(body.data.operations.map((operation) => operation.id)).toContain("probes.create");
     expect(body.data.operations.map((operation) => operation.id)).toContain("subscriptions.ensure");
     expect(body.data.operations.map((operation) => operation.id)).toContain("routes.remove");

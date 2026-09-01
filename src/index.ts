@@ -7,6 +7,7 @@ import { createTelegramWebhookHandler, type TelegramWebhookHandler } from "./bot
 import { loadConfig } from "./config.ts";
 import { TelegramDestinationAdapter } from "./delivery/telegram.ts";
 import { DeliveryWorker } from "./delivery/worker.ts";
+import { buildInfoFromEnvironment } from "./health.ts";
 import { createHttpHandler } from "./http.ts";
 import { createEmailWebhookHandler, type EmailWebhookHandler } from "./sources/email/index.ts";
 import { createUiHandler } from "./ui/handler.ts";
@@ -69,6 +70,8 @@ const server = Bun.serve({
     telegramWebhook,
     emailWebhook,
     ui,
+    readiness: app.readiness,
+    buildInfo: buildInfoFromEnvironment(app.schemaVersion),
     log: (event) => console.log(JSON.stringify(event)),
   }),
 });

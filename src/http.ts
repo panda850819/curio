@@ -13,6 +13,12 @@ import type {
   NewRoute,
   SubscriptionUpdate,
 } from "./domain/types.ts";
+import {
+  type BuildInfo,
+  buildInfoFromEnvironment,
+  type ReadinessResult,
+  SERVICE_NAME,
+} from "./health.ts";
 import type { SubscriptionCandidate } from "./probe/types.ts";
 import type { ReaderQuote } from "./reader/service.ts";
 import { redactSensitiveUrls, sanitizeErrorMessage } from "./security/redaction.ts";
@@ -44,6 +50,8 @@ export interface HttpDependencies {
   authGuard?: HttpAuthGuard;
   startedAt?: number;
   now?: () => number;
+  readiness?: () => ReadinessResult;
+  buildInfo?: BuildInfo;
   createRequestId?: () => string;
   log?: (event: RequestLogEvent) => void;
 }
@@ -117,16 +125,68 @@ export function successResponse<T>(data: T, status = 200): Response {
   return Response.json({ data }, { status });
 }
 
-function routeRequest(request: Request, startedAt: number, now: () => number): Response {
+function unavailableReadiness(): ReadinessResult {
+  return {
+    status: "error",
+    service: SERVICE_NAME,
+    checks: { database: "error", migrations: "not_checked" },
+    schemaVersion: 0,
+  };
+}
+
+interface SystemRouteDependencies {
+  readiness?: () => ReadinessResult;
+  buildInfo: BuildInfo;
+}
+
+function routeRequest(
+  request: Request,
+  startedAt: number,
+  now: () => number,
+  dependencies: SystemRouteDependencies,
+): Response {
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") {
     return Response.json({
       status: "ok",
-      service: "curio",
+      service: SERVICE_NAME,
       uptimeSeconds: Math.floor((now() - startedAt) / 1_000),
     });
   }
+  if (request.method === "GET" && url.pathname === "/healthz") {
+    return Response.json({ status: "ok", service: SERVICE_NAME });
+  }
+  if (request.method === "GET" && url.pathname === "/readyz") {
+    let readiness = unavailableReadiness();
+    try {
+      readiness = dependencies.readiness?.() ?? readiness;
+    } catch {
+      // Keep readiness failures stable and free of database or host details.
+    }
+    return Response.json(readiness, { status: readiness.status === "ok" ? 200 : 503 });
+  }
+  if (request.method === "GET" && url.pathname === "/version") {
+    return Response.json({
+      service: SERVICE_NAME,
+      revision: dependencies.buildInfo.revision,
+      buildTime: dependencies.buildInfo.buildTime,
+      schemaVersion: dependencies.buildInfo.schemaVersion,
+    });
+  }
   throw new AppError("not_found", "not_found", "Route not found");
+}
+
+function isSystemPath(pathname: string): boolean {
+  return (
+    pathname === "/health" ||
+    pathname === "/healthz" ||
+    pathname === "/readyz" ||
+    pathname === "/version"
+  );
+}
+
+function isUnauthenticatedSystemPath(pathname: string): boolean {
+  return pathname === "/healthz" || pathname === "/readyz" || pathname === "/version";
 }
 
 function asObject(value: unknown, field: string): JsonObject {
@@ -739,8 +799,12 @@ async function dispatchWithServices(
   authGuard: HttpAuthGuard | undefined,
   startedAt: number,
   now: () => number,
+  systemRoutes: SystemRouteDependencies,
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
+  if (isUnauthenticatedSystemPath(pathname)) {
+    return routeRequest(request, startedAt, now, systemRoutes);
+  }
   if (pathname === "/telegram/webhook" && telegramWebhook) return telegramWebhook(request);
   if (pathname === "/email/inbound" && emailWebhook) return emailWebhook(request);
   if (authGuard) await authGuard(request);
@@ -748,12 +812,12 @@ async function dispatchWithServices(
     ui &&
     (isValidUiPath(pathname) ||
       (!pathname.startsWith("/api/") &&
-        pathname !== "/health" &&
+        !isSystemPath(pathname) &&
         pathname !== "/telegram/webhook" &&
         pathname !== "/email/inbound"));
   if (uiRequest) return ui(request);
-  if (pathname === "/health") return routeRequest(request, startedAt, now);
-  if (!services) return routeRequest(request, startedAt, now);
+  if (isSystemPath(pathname)) return routeRequest(request, startedAt, now, systemRoutes);
+  if (!services) return routeRequest(request, startedAt, now, systemRoutes);
   return handleApiRequest(request, services);
 }
 
@@ -761,6 +825,11 @@ export function createHttpHandler(dependencies: HttpDependencies = {}): HttpHand
   const now = dependencies.now ?? Date.now;
   const startedAt = dependencies.startedAt ?? now();
   const createRequestId = dependencies.createRequestId ?? defaultRequestId;
+  const buildInfo = dependencies.buildInfo ?? buildInfoFromEnvironment(0);
+  const systemRoutes: SystemRouteDependencies = {
+    readiness: dependencies.readiness,
+    buildInfo,
+  };
   const log = dependencies.log ?? ((event) => console.log(JSON.stringify(event)));
 
   return (request) => {
@@ -786,8 +855,9 @@ export function createHttpHandler(dependencies: HttpDependencies = {}): HttpHand
               dependencies.authGuard,
               startedAt,
               now,
+              systemRoutes,
             )
-          : routeRequest(request, startedAt, now);
+          : routeRequest(request, startedAt, now, systemRoutes);
     } catch (error) {
       const failure = errorResponse(error);
       result = failure.response;
