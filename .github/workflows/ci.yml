@@ -13,6 +13,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verification record checker tests
+        if: github.event_name == 'pull_request'
+        run: bash scripts/ci/check-verification-record.test.sh
+      - name: Require a verification record
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bash scripts/ci/check-verification-record.sh --base "$BASE_REF"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.5
